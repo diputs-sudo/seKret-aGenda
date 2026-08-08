@@ -27,7 +27,17 @@ def test_save_document_and_search_cards():
             card_name="Hunt 26",
             citation=Citation(raw="Hunt 26, CNN.", author="Hunt", year=2026),
             body="Quantum computing can break encryption keys.",
-            highlights=[HighlightSpan(text="break encryption keys", color="green")],
+            highlights=[
+                HighlightSpan(
+                    text="break encryption keys",
+                    color="green",
+                    run_index=2,
+                    style="Emphasis",
+                    font_size=11.0,
+                    bold=True,
+                    underline=False,
+                )
+            ],
             metadata={"section_name": section.name},
         )
     )
@@ -41,6 +51,12 @@ def test_save_document_and_search_cards():
     assert result["id"] == "card-1"
     assert result["score"] > 0
     assert result["highlights"][0]["text"] == "break encryption keys"
+    assert result["highlights"][0]["highlight_color"] == "green"
+    assert result["highlights"][0]["run_index"] == 2
+    assert result["highlights"][0]["style"] == "Emphasis"
+    assert result["highlights"][0]["font_size"] == 11.0
+    assert result["highlights"][0]["bold"] is True
+    assert result["highlights"][0]["underline"] is False
 
 
 def test_embedding_records_use_section_tag_and_highlights():
@@ -73,6 +89,39 @@ def test_embedding_records_use_section_tag_and_highlights():
     assert "AI can be more cautious than humans" in record["embedding_text"]
     assert "This body should not be embedded" not in record["embedding_text"]
     assert record["citation"] == "Tucker 20, Defense One."
+    assert record["embedding_kind"] == "fast"
+    assert record["content_hash"]
+    assert record["source_text_hash"]
+
+
+def test_deep_embedding_records_include_citation_and_body():
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    init_db(connection)
+
+    document = DebateDocument(name="AI K", id="doc-1")
+    section = Section(name="AT: Hyperwar", document_id=document.id, id="section-1")
+    section.cards.append(
+        EvidenceCard(
+            id="card-1",
+            document_id=document.id,
+            section_id=section.id,
+            tag="AI is risk-averse.",
+            card_name="Tucker 20",
+            citation=Citation(raw="Tucker 20, Defense One.", author="Tucker", year=2020),
+            body="This body should be embedded in the deep index.",
+            highlights=[HighlightSpan(text="AI can be more cautious than humans")],
+            metadata={"section_name": section.name},
+        )
+    )
+    document.sections.append(section)
+    save_document(connection, document)
+
+    record = embedding_records(connection, kind="deep")[0]
+
+    assert record["embedding_kind"] == "deep"
+    assert "Tucker 20, Defense One." in record["embedding_text"]
+    assert "This body should be embedded in the deep index." in record["embedding_text"]
 
 
 def test_card_highlights_returns_all_highlighted_content_by_default():
