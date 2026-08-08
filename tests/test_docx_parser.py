@@ -10,7 +10,12 @@ def test_read_paragraphs_detects_direct_shading_and_style_highlights(tmp_path):
   <w:body>
     <w:p>
       <w:r>
-        <w:rPr><w:highlight w:val="yellow"/></w:rPr>
+        <w:rPr>
+          <w:highlight w:val="yellow"/>
+          <w:sz w:val="24"/>
+          <w:b/>
+          <w:u w:val="single"/>
+        </w:rPr>
         <w:t>direct highlight</w:t>
       </w:r>
     </w:p>
@@ -56,3 +61,6 @@ def test_read_paragraphs_detects_direct_shading_and_style_highlights(tmp_path):
         "style",
         "style",
     ]
+    assert paragraphs[0].runs[0].font_size == 12.0
+    assert paragraphs[0].runs[0].bold is True
+    assert paragraphs[0].runs[0].underline is True
