@@ -22,6 +22,9 @@ Commands:
   rebuild                   Build SQLite, then rebuild Chroma
   search <query>            Keyword search through SQLite
   vector <query>            Vector search through Chroma with reranking
+  hybrid <query>            Hybrid search through fast/deep vectors + SQLite
+  hybrid --concept-debug <query>
+                            Hybrid search with concept diagnostics
   evals                     Run retrieval evals
   cli                       Start interactive CLI
   api                       Start FastAPI backend
@@ -36,6 +39,8 @@ Environment:
 Examples:
   ./run.sh rebuild
   ./run.sh vector "automation escalation"
+  ./run.sh hybrid "AI sports betting"
+  ./run.sh hybrid --concept-debug "Opponent says AI escalates because of automation."
   ./run.sh cli
 EOF
 }
@@ -50,6 +55,7 @@ require_query() {
 }
 
 command="${1:-help}"
+
 if [[ $# -gt 0 ]]; then
   shift
 fi
@@ -61,11 +67,16 @@ case "$command" in
     ;;
 
   build-db)
-    python3 scripts/build_sqlite_from_docx.py "$DOCX_PATH" --db "$DB_PATH"
+    python3 scripts/build_sqlite_from_docx.py \
+      "$DOCX_PATH" \
+      --db "$DB_PATH"
     ;;
 
   build-vector)
-    python3 scripts/build_vector_index.py --db "$DB_PATH" --chroma "$CHROMA_PATH" --reset
+    python3 scripts/build_vector_index.py \
+      --db "$DB_PATH" \
+      --chroma "$CHROMA_PATH" \
+      --reset
     ;;
 
   rebuild)
@@ -75,24 +86,64 @@ case "$command" in
 
   search)
     require_query "$@"
-    python3 scripts/query_sqlite.py "$*" --db "$DB_PATH"
+    python3 scripts/query_sqlite.py \
+      "$*" \
+      --db "$DB_PATH"
     ;;
 
   vector)
     require_query "$@"
-    python3 scripts/query_vector.py "$*" --db "$DB_PATH" --chroma "$CHROMA_PATH" --limit 15 --rerank --top 3 --compare-sqlite
+    python3 scripts/query_vector.py \
+      "$*" \
+      --db "$DB_PATH" \
+      --chroma "$CHROMA_PATH" \
+      --limit 15 \
+      --rerank \
+      --top 3 \
+      --compare-sqlite
+    ;;
+
+  hybrid)
+    hybrid_flags=()
+
+    if [[ "${1:-}" == "--concept-debug" ]]; then
+      hybrid_flags+=(--concept-debug)
+      shift
+    fi
+
+    require_query "$@"
+
+    cmd=(
+      python3
+      scripts/query_hybrid.py
+      "$*"
+      --db "$DB_PATH"
+      --chroma "$CHROMA_PATH"
+      --limit 10
+      --debug
+    )
+
+    if ((${#hybrid_flags[@]})); then
+      cmd+=("${hybrid_flags[@]}")
+    fi
+
+    "${cmd[@]}"
     ;;
 
   evals)
-    python3 scripts/run_retrieval_evals.py --db "$DB_PATH" --chroma "$CHROMA_PATH"
+    python3 scripts/run_retrieval_evals.py \
+      --db "$DB_PATH" \
+      --chroma "$CHROMA_PATH"
     ;;
 
   cli)
-    python3 scripts/sekret.py --db "$DB_PATH"
+    python3 scripts/sekret.py \
+      --db "$DB_PATH"
     ;;
 
   api)
-    SEKRET_DB_PATH="$DB_PATH" uvicorn backend.api.main:app --reload
+    SEKRET_DB_PATH="$DB_PATH" \
+      uvicorn backend.api.main:app --reload
     ;;
 
   test)
@@ -100,7 +151,8 @@ case "$command" in
     ;;
 
   debug)
-    python3 scripts/debug_pipeline.py --db "$DB_PATH"
+    python3 scripts/debug_pipeline.py \
+      --db "$DB_PATH"
     ;;
 
   help|-h|--help)
