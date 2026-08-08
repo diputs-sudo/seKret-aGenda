@@ -48,7 +48,7 @@ Vector DB:
 - ChromaDB (tentative)
 
 LLM:
-- Qwen3 8B (tentative)
+- Gemma 3 4B (tentative)
 
 Extension:
 - Plasmo + React
