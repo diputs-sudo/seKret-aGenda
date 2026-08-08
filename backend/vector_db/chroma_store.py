@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.embeddings import Embedder
-from backend.vector_db.schema import CARD_FAST_COLLECTION
+from backend.vector_db.schema import CARD_FAST_COLLECTION, EMBEDDING_VERSION
 
 
 class ChromaDependencyError(RuntimeError):
@@ -101,14 +101,27 @@ class ChromaVectorStore:
 def _metadata(record: dict[str, Any], embedding_model: str) -> dict[str, Any]:
     return {
         "card_id": record["card_id"],
+        "embedding_kind": record.get("embedding_kind") or "fast",
         "section": record["section"],
         "tag": record["tag"],
         "card_name": record.get("card_name") or "",
+        "argument_name": record.get("argument_name") or "",
         "citation": record.get("citation") or "",
         "author": record.get("author") or "",
         "year": record.get("year") or 0,
+        "category": record.get("category") or "",
+        "topical": record.get("topical")
+        if record.get("topical") is not None
+        else "",
+        "document": record["document_name"],
         "document_name": record["document_name"],
+        "source_path": record.get("source_path") or "",
+        "source_format": record.get("source_format") or "",
+        "content_hash": record.get("content_hash") or "",
+        "source_text_hash": record.get("source_text_hash") or "",
         "embedding_model": embedding_model,
+        "embedding_version": EMBEDDING_VERSION,
+        "parser_version": record.get("parser_version") or "",
         "highlight_text": record.get("highlight_text") or "",
     }
 
