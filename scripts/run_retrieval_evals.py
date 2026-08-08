@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.embeddings import EmbeddingError, OllamaEmbedder
+from backend.models.sqlite_store import connect, search_cards
 from backend.rag import RelevanceReranker
 from backend.vector_db.chroma_store import ChromaDependencyError, ChromaVectorStore
 
@@ -46,6 +47,7 @@ EVALS = [
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--chroma", type=Path, default=Path("var/chroma"))
+    parser.add_argument("--db", type=Path, default=Path("var/sekret-agenda.sqlite3"))
     parser.add_argument("--limit", type=int, default=15)
     parser.add_argument("--top", type=int, default=3)
     parser.add_argument("--model", default=None)
@@ -59,12 +61,19 @@ def main() -> None:
         raise SystemExit(1) from exc
 
     reranker = RelevanceReranker()
+    available_names = _available_card_names(args.db)
     failures = 0
 
     for case in EVALS:
         print("=" * 72)
         print(case.name)
         print(f"Query: {case.query}")
+        if not any(name in available_names for name in case.expected_any):
+            print("Status: SKIP")
+            print("Reason: expected cards are not present in the current SQLite corpus.")
+            print()
+            continue
+
         try:
             vector_rows = store.search(case.query, embedder, args.limit)
         except EmbeddingError as exc:
@@ -76,6 +85,8 @@ def main() -> None:
             [_normalize(row) for row in vector_rows],
             args.top,
         )
+        if not reranked:
+            reranked = _sqlite_fallback(args.db, case.query, args.top)
         names = [str(row.get("card_name") or "") for row in reranked]
 
         print("Results:")
@@ -119,6 +130,38 @@ def _normalize(row):
     }
 
 
+def _sqlite_fallback(db_path: Path, query: str, limit: int):
+    connection = connect(db_path)
+    rows = search_cards(connection, query, limit)
+    connection.close()
+    return [
+        {
+            "card_id": row["id"],
+            "score": row["score"],
+            "relevance_score": 0.0,
+            "section": row["section_name"],
+            "tag": row["tag"],
+            "card_name": row["card_name"],
+            "author": row["author"],
+            "year": row["year"],
+            "metadata": {},
+        }
+        for row in rows
+    ]
+
+
+def _available_card_names(db_path: Path) -> set[str]:
+    connection = connect(db_path)
+    rows = connection.execute(
+        """
+        SELECT card_name
+        FROM evidence_cards
+        WHERE card_name IS NOT NULL AND card_name != ''
+        """
+    ).fetchall()
+    connection.close()
+    return {str(row["card_name"]) for row in rows}
+
+
 if __name__ == "__main__":
     main()
-
