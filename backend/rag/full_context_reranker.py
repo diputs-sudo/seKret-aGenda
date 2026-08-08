@@ -114,10 +114,10 @@ class FullContextReranker:
         same_section_only = bool(section_hits and not useful_hits)
 
         score = (
-            _hit_score(tag_hits) * 4.0
-            + _hit_score(highlight_hits) * 3.0
-            + _hit_score(body_hits) * 1.25
-            + _hit_score(citation_hits) * 0.75
+            _weighted_ratio(tag_hits, query_terms) * 4.0
+            + _weighted_ratio(highlight_hits, query_terms) * 3.0
+            + _weighted_ratio(body_hits, query_terms) * 1.25
+            + _weighted_ratio(citation_hits, query_terms) * 0.75
             + len(section_hits) * 0.15
             + mechanism * 10.0
             + _evidence_strength(card) * 2.0
@@ -129,7 +129,7 @@ class FullContextReranker:
             score *= 0.45
         if not (tag_hits or highlight_hits or body_hits):
             score *= 0.4
-        relevance_score = round(max(0.0, min(1.0, score / 24.0)), 3)
+        relevance_score = _calibrated_relevance(score)
         relationship = classify_relationship(
             query_mechanism=query_mechanism,
             card_mechanism=card_mechanism,
@@ -362,6 +362,17 @@ def _evidence_strength(card: dict[str, Any]) -> float:
 
 def _hit_score(hits: set[str]) -> float:
     return round(sum(_term_weight(term) for term in hits), 3)
+
+
+def _weighted_ratio(hits: set[str], query_terms: set[str]) -> float:
+    total = _hit_score(query_terms)
+    return round(min(_hit_score(hits) / total, 1.0), 3) if total else 0.0
+
+
+def _calibrated_relevance(raw_score: float) -> float:
+    if raw_score <= 0:
+        return 0.0
+    return round(min(raw_score / (raw_score + 5.0), 0.98), 3)
 
 
 def _term_weight(term: str) -> float:
