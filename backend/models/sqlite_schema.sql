@@ -35,9 +35,12 @@ CREATE TABLE IF NOT EXISTS evidence_cards (
     section_id TEXT NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
     tag TEXT NOT NULL,
     card_name TEXT,
+    argument_name TEXT,
     body TEXT NOT NULL,
     category TEXT,
     topical INTEGER,
+    side TEXT,
+    source_path TEXT,
     content_hash TEXT NOT NULL,
     paragraph_start INTEGER,
     paragraph_end INTEGER,
@@ -60,10 +63,15 @@ CREATE TABLE IF NOT EXISTS highlights (
     card_id TEXT NOT NULL REFERENCES evidence_cards(id) ON DELETE CASCADE,
     text TEXT NOT NULL,
     color TEXT,
+    highlight_color TEXT,
     paragraph_index INTEGER,
     run_index INTEGER,
     start_char INTEGER,
     end_char INTEGER,
+    style TEXT,
+    font_size REAL,
+    bold INTEGER,
+    underline INTEGER,
     order_index INTEGER NOT NULL DEFAULT 0
 );
 
