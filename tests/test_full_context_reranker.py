@@ -132,3 +132,35 @@ def test_relevance_gate_rejects_cyber_router_card_for_ai_escalation():
     assert "ai" in rejected[0]["candidate_assessment"]["missing_concepts"]
     assert "automation" in rejected[0]["candidate_assessment"]["missing_concepts"]
     assert "conflict_escalation" in rejected[0]["candidate_assessment"]["missing_concepts"]
+
+
+def test_reranker_score_does_not_ceiling_on_repeated_phrase_matches():
+    intent = parse_query_intent("AI sports betting")
+    cards = [
+        {
+            "card_id": "pampus",
+            "retrieval_score": 0.05,
+            "section": "AT: State money used for addiction rehab",
+            "tag": (
+                "Turn: Nationally unregulated market causes companies to use AI "
+                "for money in sports betting."
+            ),
+            "card_name": "Pampus 25",
+            "highlights": [
+                {
+                    "text": (
+                        "AI used grow revenue in sports betting and bans technologies "
+                        "that manipulate habits."
+                    )
+                }
+            ],
+            "body": (
+                "AI sports betting operators use automation to grow revenue in the "
+                "betting market."
+            ),
+        }
+    ]
+
+    result = FullContextReranker().rerank(intent, cards)[0]
+
+    assert 0.7 <= result["reranker_score"] < 0.9
