@@ -59,9 +59,12 @@ class RetrievalEngine:
             "section": row["section_name"],
             "citation": row["citation"],
             "card_name": row["card_name"],
+            "argument_name": row.get("argument_name"),
             "author": row["author"],
             "year": row["year"],
             "document": row["document_name"],
+            "side": row.get("side"),
+            "source_path": row.get("source_path"),
             "highlights": row["highlights"],
             "body_preview": row.get("body_preview"),
         }
@@ -76,6 +79,9 @@ def _load_card(connection: sqlite3.Connection, card_id: str) -> sqlite3.Row | No
             sections.name AS section,
             evidence_cards.tag,
             evidence_cards.card_name,
+            evidence_cards.argument_name,
+            evidence_cards.side,
+            evidence_cards.source_path,
             citations.raw AS citation,
             citations.author,
             citations.year,
@@ -88,4 +94,3 @@ def _load_card(connection: sqlite3.Connection, card_id: str) -> sqlite3.Row | No
         """,
         (card_id,),
     ).fetchone()
-
