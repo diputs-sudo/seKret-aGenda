@@ -104,6 +104,7 @@ def _metadata(record: dict[str, Any], embedding_model: str) -> dict[str, Any]:
         "section": record["section"],
         "tag": record["tag"],
         "card_name": record.get("card_name") or "",
+        "citation": record.get("citation") or "",
         "author": record.get("author") or "",
         "year": record.get("year") or 0,
         "document_name": record["document_name"],
