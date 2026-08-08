@@ -21,6 +21,13 @@ from backend.models import (
 
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 W = f"{{{WORD_NS['w']}}}"
+IGNORED_HIGHLIGHT_VALUES = {"", "none", "white"}
+IGNORED_SHADING_VALUES = {"", "auto", "ffffff", "white"}
+SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"\s+([,.;:!?%)\]\}])")
+SPACE_AFTER_OPEN_RE = re.compile(r"([(\[\{])\s+")
+CONTRACTION_APOSTROPHE_RE = re.compile(
+    r"\s+(['’])(?=(?:s|t|re|ve|d|ll|m)\b)", re.IGNORECASE
+)
 
 
 @dataclass
@@ -37,6 +44,12 @@ class ParsedParagraph:
     style: str | None
     text: str
     runs: list[ParsedRun] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class HighlightStyles:
+    paragraph_styles: set[str] = field(default_factory=set)
+    character_styles: set[str] = field(default_factory=set)
 
 
 def parse_docx(path: str | Path) -> DebateDocument:
@@ -98,28 +111,34 @@ def parse_docx(path: str | Path) -> DebateDocument:
 def _read_paragraphs(path: Path) -> list[ParsedParagraph]:
     with ZipFile(path) as archive:
         root = ET.fromstring(archive.read("word/document.xml"))
+        styles = _highlight_styles(archive)
 
     paragraphs: list[ParsedParagraph] = []
     for para_index, paragraph in enumerate(root.findall(".//w:body/w:p", WORD_NS)):
         style_el = paragraph.find("./w:pPr/w:pStyle", WORD_NS)
         style = style_el.attrib.get(f"{W}val") if style_el is not None else None
+        paragraph_highlight = "style" if style in styles.paragraph_styles else None
         runs: list[ParsedRun] = []
 
         for run in paragraph.findall("./w:r", WORD_NS):
-            text = "".join(node.text or "" for node in run.findall("./w:t", WORD_NS))
+            text = _run_text(run)
             if not text:
                 continue
 
             run_props = run.find("./w:rPr", WORD_NS)
-            highlight = None
+            run_style_el = run.find("./w:rPr/w:rStyle", WORD_NS)
+            run_style = (
+                run_style_el.attrib.get(f"{W}val") if run_style_el is not None else None
+            )
+            highlight = paragraph_highlight
             bold = False
             underline = False
             if run_props is not None:
-                highlight_el = run_props.find("./w:highlight", WORD_NS)
-                if highlight_el is not None:
-                    highlight = highlight_el.attrib.get(f"{W}val")
+                highlight = _highlight_value(run_props) or highlight
                 bold = run_props.find("./w:b", WORD_NS) is not None
                 underline = run_props.find("./w:u", WORD_NS) is not None
+            if not highlight and run_style in styles.character_styles:
+                highlight = "style"
 
             runs.append(
                 ParsedRun(
@@ -130,13 +149,94 @@ def _read_paragraphs(path: Path) -> list[ParsedParagraph]:
                 )
             )
 
-        text = "".join(run.text for run in runs).strip()
+        text = _normalize_spacing("".join(run.text for run in runs))
         if text:
             paragraphs.append(
                 ParsedParagraph(index=para_index, style=style, text=text, runs=runs)
             )
 
     return paragraphs
+
+
+def _run_text(run: ET.Element) -> str:
+    parts: list[str] = []
+    for child in run:
+        if child.tag == f"{W}t":
+            parts.append(child.text or "")
+        elif child.tag == f"{W}tab":
+            parts.append(" ")
+        elif child.tag in {f"{W}br", f"{W}cr"}:
+            parts.append("\n")
+    return "".join(parts)
+
+
+def _highlight_styles(archive: ZipFile) -> HighlightStyles:
+    try:
+        root = ET.fromstring(archive.read("word/styles.xml"))
+    except KeyError:
+        return HighlightStyles()
+
+    raw_styles: dict[str, tuple[str, bool, str]] = {}
+    for style in root.findall("w:style", WORD_NS):
+        style_id = style.attrib.get(f"{W}styleId", "")
+        style_type = style.attrib.get(f"{W}type", "")
+        based_on = style.find("w:basedOn", WORD_NS)
+        parent_id = based_on.attrib.get(f"{W}val", "") if based_on is not None else ""
+        has_highlight = _highlight_value(style.find("w:rPr", WORD_NS)) is not None
+        if style_id:
+            raw_styles[style_id] = (style_type, has_highlight, parent_id)
+
+    def inherits_highlight(style_id: str, seen: set[str] | None = None) -> bool:
+        if not style_id or style_id not in raw_styles:
+            return False
+        seen = seen or set()
+        if style_id in seen:
+            return False
+        seen.add(style_id)
+        _, has_highlight, parent_id = raw_styles[style_id]
+        return has_highlight or inherits_highlight(parent_id, seen)
+
+    paragraph_styles: set[str] = set()
+    character_styles: set[str] = set()
+    for style_id, (style_type, _, _) in raw_styles.items():
+        if not inherits_highlight(style_id):
+            continue
+        if style_type == "paragraph":
+            paragraph_styles.add(style_id)
+        elif style_type == "character":
+            character_styles.add(style_id)
+
+    return HighlightStyles(
+        paragraph_styles=paragraph_styles,
+        character_styles=character_styles,
+    )
+
+
+def _highlight_value(run_props: ET.Element | None) -> str | None:
+    if run_props is None:
+        return None
+
+    highlight_el = run_props.find("./w:highlight", WORD_NS)
+    if highlight_el is not None:
+        value = (highlight_el.attrib.get(f"{W}val") or "").lower()
+        if value not in IGNORED_HIGHLIGHT_VALUES:
+            return value
+
+    shading_el = run_props.find("./w:shd", WORD_NS)
+    if shading_el is not None:
+        fill = (shading_el.attrib.get(f"{W}fill") or "").lower()
+        if fill not in IGNORED_SHADING_VALUES:
+            return fill
+
+    return None
+
+
+def _normalize_spacing(text: str) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    text = SPACE_BEFORE_PUNCTUATION_RE.sub(r"\1", text)
+    text = SPACE_AFTER_OPEN_RE.sub(r"\1", text)
+    text = CONTRACTION_APOSTROPHE_RE.sub(r"\1", text)
+    return text
 
 
 def _is_section_heading(paragraph: ParsedParagraph) -> bool:
@@ -330,7 +430,7 @@ def _append_highlight(
     start_char: int | None,
     end_char: int,
 ) -> None:
-    text = "".join(text_parts).strip()
+    text = _normalize_spacing("".join(text_parts))
     if not text:
         return
     highlights.append(
