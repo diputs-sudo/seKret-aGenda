@@ -8,6 +8,20 @@ def test_mode_command_changes_mode():
     assert result.mode == "search"
 
 
+def test_mode_command_accepts_no_ai_alias():
+    result = _handle_command("/mode no-ai", "draft")
+
+    assert result.handled is True
+    assert result.mode == "search"
+
+
+def test_mode_command_accepts_ai_alias():
+    result = _handle_command("/mode ai", "search")
+
+    assert result.handled is True
+    assert result.mode == "draft"
+
+
 def test_mode_command_rejects_unknown_mode():
     result = _handle_command("/mode chaos", "draft")
 
