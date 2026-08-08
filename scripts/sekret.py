@@ -17,6 +17,11 @@ from backend.prompt import GenerationMode
 from backend.rag import RetrievalEngine, SearchRequest
 
 MODES = {"search", "explain", "draft", "summarize"}
+MODE_ALIASES = {
+    "no-ai": "search",
+    "noai": "search",
+    "ai": "draft",
+}
 
 
 def main() -> None:
@@ -32,6 +37,7 @@ def main() -> None:
     print("seKret aGenda")
     print(f"Mode: {current_mode}")
     print("Type an input, /mode <mode>, /help, or Ctrl-D to exit.")
+    print("No-AI mode is /mode no-ai. AI mode is /mode ai.")
     print()
 
     while True:
@@ -98,14 +104,15 @@ def _handle_command(text: str, current_mode: str) -> CommandResult:
     if command == "/mode":
         if len(parts) == 1:
             print(f"Current mode: {current_mode}")
-            print("Available modes: search, explain, draft, summarize")
+            print("Available modes: no-ai, ai, search, explain, draft, summarize")
             print()
             return CommandResult(True)
 
-        mode = parts[1].lower()
+        requested_mode = parts[1].lower()
+        mode = MODE_ALIASES.get(requested_mode, requested_mode)
         if mode not in MODES:
-            print(f"Unknown mode: {mode}")
-            print("Available modes: search, explain, draft, summarize")
+            print(f"Unknown mode: {requested_mode}")
+            print("Available modes: no-ai, ai, search, explain, draft, summarize")
             print()
             return CommandResult(True)
 
@@ -116,6 +123,8 @@ def _handle_command(text: str, current_mode: str) -> CommandResult:
     if command == "/help":
         print("Commands:")
         print("- /mode")
+        print("- /mode no-ai")
+        print("- /mode ai")
         print("- /mode search")
         print("- /mode explain")
         print("- /mode draft")
@@ -148,7 +157,7 @@ def _print_search_results(rows: list[dict[str, object]]) -> None:
         print("Highlights:")
         for highlight in row.get("highlights", []):
             color = f" [{highlight['color']}]" if highlight.get("color") else ""
-            print(f"-{color} {_clip(str(highlight['text']), 180)}")
+            print(f"-{color} {str(highlight['text']).strip()}")
         print()
 
 
