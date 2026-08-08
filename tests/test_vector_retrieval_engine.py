@@ -1,4 +1,4 @@
-from backend.models import Citation, DebateDocument, EvidenceCard, Section
+from backend.models import Citation, DebateDocument, EvidenceCard, HighlightSpan, Section
 from backend.models.sqlite_store import connect, init_db, save_document
 from backend.rag import VectorRetrievalEngine
 
@@ -34,6 +34,7 @@ def test_vector_retrieval_engine_fetches_full_card_metadata(tmp_path):
             card_name="Tucker 20",
             citation=Citation(raw="Tucker 20, Defense One.", author="Tucker", year=2020),
             body="AI can be more cautious than humans.",
+            highlights=[HighlightSpan(text="AI can be more cautious than humans")],
         )
     )
     document.sections.append(section)
@@ -47,3 +48,4 @@ def test_vector_retrieval_engine_fetches_full_card_metadata(tmp_path):
     assert results[0]["score"] == 0.91
     assert results[0]["section"] == "AT: Hyperwar"
     assert results[0]["card_name"] == "Tucker 20"
+    assert results[0]["highlights"][0]["text"] == "AI can be more cautious than humans"
