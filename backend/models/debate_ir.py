@@ -34,6 +34,10 @@ class HighlightSpan:
     run_index: int | None = None
     start_char: int | None = None
     end_char: int | None = None
+    style: str | None = None
+    font_size: float | None = None
+    bold: bool | None = None
+    underline: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -59,9 +63,12 @@ class EvidenceCard:
     document_id: str
     id: str = field(default_factory=lambda: str(uuid4()))
     card_name: str | None = None
+    argument_name: str | None = None
     highlights: list[HighlightSpan] = field(default_factory=list)
     category: str | None = None
     topical: bool | None = None
+    side: str | None = None
+    source_path: str | None = None
     paragraph_start: int | None = None
     paragraph_end: int | None = None
     source_format: str | None = None
@@ -73,10 +80,13 @@ class EvidenceCard:
         parts = [
             self.document_id,
             self.section_id,
+            self.argument_name or "",
             self.tag,
             self.citation.raw,
             self.body,
             "|".join(highlight.text for highlight in self.highlights),
+            self.side or "",
+            self.source_path or "",
         ]
         return sha256("\n".join(parts).encode("utf-8")).hexdigest()
 
