@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.embeddings import Embedder
-from backend.models.sqlite_store import connect
+from backend.models.sqlite_store import card_highlights, connect
 from backend.vector_db.chroma_store import ChromaVectorStore
 
 
@@ -64,5 +64,8 @@ def _load_cards(db_path: Path, card_ids: list[str]) -> dict[str, dict[str, Any]]
             card_ids,
         ).fetchall()
 
-    return {str(row["card_id"]): dict(row) for row in rows}
+        cards = {str(row["card_id"]): dict(row) for row in rows}
+        for card_id in cards:
+            cards[card_id]["highlights"] = card_highlights(connection, card_id)
 
+    return cards
