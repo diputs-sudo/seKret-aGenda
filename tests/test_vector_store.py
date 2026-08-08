@@ -1,4 +1,5 @@
 from backend.vector_db.chroma_store import ChromaVectorStore
+from backend.vector_db.schema import CARD_FAST_COLLECTION
 
 
 class FakeEmbedder:
@@ -9,7 +10,7 @@ class FakeEmbedder:
 
 
 class FakeCollection:
-    name = "card_fast_index"
+    name = CARD_FAST_COLLECTION
 
     def __init__(self):
         self.rows = {}
@@ -57,6 +58,11 @@ def test_chroma_vector_store_adds_and_searches_cards():
             "card_name": "Tucker 20",
             "author": "Tucker",
             "year": 2020,
+            "citation": "Tucker 20, Defense One.",
+            "content_hash": "content-hash",
+            "source_text_hash": "source-text-hash",
+            "embedding_kind": "fast",
+            "parser_version": "docx-v2",
             "document_name": "AI K",
             "embedding_text": "AT: Hyperwar\n\nAI is risk-averse.",
         }
@@ -68,4 +74,9 @@ def test_chroma_vector_store_adds_and_searches_cards():
     assert total == 1
     assert rows[0]["card_id"] == "card-1"
     assert rows[0]["metadata"]["card_name"] == "Tucker 20"
+    assert rows[0]["metadata"]["embedding_kind"] == "fast"
+    assert rows[0]["metadata"]["embedding_version"]
+    assert rows[0]["metadata"]["parser_version"] == "docx-v2"
+    assert rows[0]["metadata"]["content_hash"] == "content-hash"
+    assert rows[0]["metadata"]["citation"] == "Tucker 20, Defense One."
     assert rows[0]["score"] == 0.75
