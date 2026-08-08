@@ -21,6 +21,7 @@ from backend.models import (
 
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 W = f"{{{WORD_NS['w']}}}"
+PARSER_VERSION = "docx-v2"
 IGNORED_HIGHLIGHT_VALUES = {"", "none", "white"}
 IGNORED_SHADING_VALUES = {"", "auto", "ffffff", "white"}
 SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"\s+([,.;:!?%)\]\}])")
@@ -34,6 +35,8 @@ CONTRACTION_APOSTROPHE_RE = re.compile(
 class ParsedRun:
     text: str
     highlight: str | None = None
+    style: str | None = None
+    font_size: float | None = None
     bold: bool = False
     underline: bool = False
 
@@ -61,6 +64,7 @@ def parse_docx(path: str | Path) -> DebateDocument:
         name=docx_path.stem,
         source_path=str(docx_path),
         source_format="docx",
+        metadata={"parser_version": PARSER_VERSION},
     )
     current_section: Section | None = None
     section_order = 0
@@ -144,6 +148,8 @@ def _read_paragraphs(path: Path) -> list[ParsedParagraph]:
                 ParsedRun(
                     text=text,
                     highlight=highlight,
+                    style=run_style,
+                    font_size=_font_size(run_props),
                     bold=bold,
                     underline=underline,
                 )
@@ -231,6 +237,21 @@ def _highlight_value(run_props: ET.Element | None) -> str | None:
     return None
 
 
+def _font_size(run_props: ET.Element | None) -> float | None:
+    if run_props is None:
+        return None
+    size_el = run_props.find("./w:sz", WORD_NS)
+    if size_el is None:
+        return None
+    value = size_el.attrib.get(f"{W}val")
+    if not value:
+        return None
+    try:
+        return int(value) / 2
+    except ValueError:
+        return None
+
+
 def _normalize_spacing(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     text = SPACE_BEFORE_PUNCTUATION_RE.sub(r"\1", text)
@@ -296,14 +317,17 @@ def _parse_card(
         section_id=section.id,
         tag=tag_paragraph.text,
         card_name=_card_name(citation),
+        argument_name=section.name,
         citation=citation,
         body=body,
         highlights=_extract_highlights(body_paragraphs),
+        source_path=document.source_path,
         paragraph_start=tag_paragraph.index,
         paragraph_end=body_paragraphs[-1].index if body_paragraphs else tag_paragraph.index,
         source_format="docx",
         metadata={
             "section_name": section.name,
+            "parser_version": PARSER_VERSION,
             "tag_paragraph_index": tag_paragraph.index,
             "citation_paragraph_index": citation_paragraph.index,
         },
@@ -370,6 +394,10 @@ def _extract_highlights(paragraphs: list[ParsedParagraph]) -> list[HighlightSpan
         active_color: str | None = None
         active_start: int | None = None
         active_run_index: int | None = None
+        active_style: str | None = None
+        active_font_size: float | None = None
+        active_bold: bool | None = None
+        active_underline: bool | None = None
 
         for run_index, run in enumerate(paragraph.runs):
             start = offset
@@ -388,11 +416,19 @@ def _extract_highlights(paragraphs: list[ParsedParagraph]) -> list[HighlightSpan
                         active_run_index,
                         active_start,
                         start,
+                        active_style,
+                        active_font_size,
+                        active_bold,
+                        active_underline,
                     )
                     active_text = [run.text]
                     active_color = run.highlight
                     active_start = start
                     active_run_index = run_index
+                    active_style = run.style
+                    active_font_size = run.font_size
+                    active_bold = run.bold
+                    active_underline = run.underline
             else:
                 _append_highlight(
                     highlights,
@@ -402,11 +438,19 @@ def _extract_highlights(paragraphs: list[ParsedParagraph]) -> list[HighlightSpan
                     active_run_index,
                     active_start,
                     start,
+                    active_style,
+                    active_font_size,
+                    active_bold,
+                    active_underline,
                 )
                 active_text = []
                 active_color = None
                 active_start = None
                 active_run_index = None
+                active_style = None
+                active_font_size = None
+                active_bold = None
+                active_underline = None
 
         _append_highlight(
             highlights,
@@ -416,6 +460,10 @@ def _extract_highlights(paragraphs: list[ParsedParagraph]) -> list[HighlightSpan
             active_run_index,
             active_start,
             offset,
+            active_style,
+            active_font_size,
+            active_bold,
+            active_underline,
         )
 
     return highlights
@@ -429,6 +477,10 @@ def _append_highlight(
     run_index: int | None,
     start_char: int | None,
     end_char: int,
+    style: str | None,
+    font_size: float | None,
+    bold: bool | None,
+    underline: bool | None,
 ) -> None:
     text = _normalize_spacing("".join(text_parts))
     if not text:
@@ -441,5 +493,9 @@ def _append_highlight(
             run_index=run_index,
             start_char=start_char,
             end_char=end_char,
+            style=style,
+            font_size=font_size,
+            bold=bold,
+            underline=underline,
         )
     )
