@@ -2,6 +2,7 @@ import sqlite3
 
 from backend.models import Citation, DebateDocument, EvidenceCard, HighlightSpan, Section
 from backend.models.sqlite_store import (
+    card_highlights,
     count_rows,
     embedding_records,
     init_db,
@@ -71,6 +72,43 @@ def test_embedding_records_use_section_tag_and_highlights():
     assert "AI is risk-averse." in record["embedding_text"]
     assert "AI can be more cautious than humans" in record["embedding_text"]
     assert "This body should not be embedded" not in record["embedding_text"]
+    assert record["citation"] == "Tucker 20, Defense One."
+
+
+def test_card_highlights_returns_all_highlighted_content_by_default():
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    init_db(connection)
+
+    document = DebateDocument(name="AI K", id="doc-1")
+    section = Section(name="AT: Hyperwar", document_id=document.id, id="section-1")
+    section.cards.append(
+        EvidenceCard(
+            id="card-1",
+            document_id=document.id,
+            section_id=section.id,
+            tag="AI is risk-averse.",
+            card_name="Tucker 20",
+            citation=Citation(raw="Tucker 20, Defense One.", author="Tucker", year=2020),
+            body="AI can be more cautious than humans.\n\nMachines lower confidence.",
+            highlights=[
+                HighlightSpan(text="AI can be more cautious than humans", paragraph_index=1),
+                HighlightSpan(text="Machines lower confidence", paragraph_index=2),
+                HighlightSpan(text="Humans overestimate limited data", paragraph_index=3),
+                HighlightSpan(text="Machine judgment checks human pride", paragraph_index=4),
+                HighlightSpan(text="AI support improves security analysis", paragraph_index=5),
+                HighlightSpan(text="Confidence drops when sources disappear", paragraph_index=6),
+            ],
+            metadata={"section_name": section.name},
+        )
+    )
+    document.sections.append(section)
+    save_document(connection, document)
+
+    highlights = card_highlights(connection, "card-1")
+
+    assert len(highlights) == 6
+    assert highlights[-1]["text"] == "Confidence drops when sources disappear"
 
 
 def test_search_accepts_natural_language_punctuation():
