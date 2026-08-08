@@ -122,7 +122,7 @@ def _format_search_row(
 ) -> dict[str, object]:
     result = dict(row)
     result["score"] = _score_from_rank(row["rank"])
-    result["highlights"] = _card_highlights(connection, row["id"])
+    result["highlights"] = card_highlights(connection, row["id"])
     return result
 
 
@@ -135,8 +135,8 @@ def _score_from_rank(rank: float) -> float:
     return max(round(1.0 / (1.0 + rank), 3), 0.001)
 
 
-def _card_highlights(
-    connection: sqlite3.Connection, card_id: str, limit: int = 5
+def card_highlights(
+    connection: sqlite3.Connection, card_id: str, limit: int | None = None
 ) -> list[dict[str, object]]:
     rows = connection.execute(
         """
@@ -173,7 +173,7 @@ def _card_highlights(
                 }
             )
 
-        if len(merged) >= limit:
+        if limit is not None and len(merged) >= limit:
             break
 
     return merged
@@ -225,6 +225,7 @@ def embedding_records(connection: sqlite3.Connection) -> list[dict[str, object]]
             evidence_cards.card_name,
             citations.author,
             citations.year,
+            citations.raw AS citation,
             group_concat(highlights.text, ' ') AS highlight_text
         FROM evidence_cards
         JOIN sections ON sections.id = evidence_cards.section_id
@@ -251,6 +252,7 @@ def embedding_records(connection: sqlite3.Connection) -> list[dict[str, object]]
                 "card_name": row["card_name"],
                 "author": row["author"],
                 "year": row["year"],
+                "citation": row["citation"],
                 "highlight_text": highlights,
                 "embedding_text": embedding_text,
             }
