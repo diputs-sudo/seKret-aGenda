@@ -66,6 +66,12 @@ class ChromaVectorStore:
             total += len(batch)
         return total
 
+    def delete_ids(self, ids: list[str]) -> int:
+        if not ids:
+            return 0
+        self.collection.delete(ids=[str(item) for item in ids])
+        return len(ids)
+
     def search(
         self,
         query: str,
