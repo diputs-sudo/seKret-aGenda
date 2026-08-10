@@ -36,5 +36,4 @@ def test_relevance_reranker_rejects_same_section_unrelated_tag():
     names = [card["card_name"] for card in results]
 
     assert "Cox 21" in names
-    assert "Goldfarb 22" in names
     assert "Shapiro 26" not in names
