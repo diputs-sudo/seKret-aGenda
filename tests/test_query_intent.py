@@ -15,8 +15,8 @@ def test_parse_query_intent_extracts_filters_and_opponent_claim():
     assert intent.section_filter == "AT: Hyperwar"
     assert intent.opponent_claim == "AI escalates because of automation"
     assert "automation" in intent.concepts
-    assert "control" in intent.concepts
-    assert "escalation" in intent.concepts
+    assert "escalates" in intent.concepts
+    assert "control" not in intent.concepts
     assert "author:Tucker" not in intent.search_text
 
 
@@ -42,4 +42,14 @@ def test_parse_query_intent_tracks_stopwords_and_phrase_concepts():
 
     oversight = parse_query_intent("Human oversight prevents AI mistakes.")
 
-    assert "human_control" in oversight.phrase_concepts
+    assert "human_oversight" in oversight.phrase_concepts
+
+
+def test_parse_query_intent_ignores_semantic_stopwords():
+    intent = parse_query_intent(
+        "How do sportsbooks use machine learning to maximize bettor engagement?"
+    )
+
+    assert "use" not in intent.concepts
+    assert "do" not in intent.concepts
+    assert "machine_learning" in intent.concepts
