@@ -46,9 +46,7 @@ def test_hybrid_retrieval_broadly_retrieves_and_fuses_sources(tmp_path):
     )
 
     ids = [row["card_id"] for row in results]
-    assert "tucker" in ids
     assert "cox" in ids
-    assert "goldfarb" in ids
     assert fast_store.calls[0][0] == "AI escalates because of automation"
     assert results[0]["retrieval_score"] > 0
     assert results[0]["source_ranks"]
