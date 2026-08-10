@@ -61,6 +61,8 @@ class RelevanceGate:
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         accepted = []
         rejected = []
+        min_relevance = _dynamic_min_relevance(cards, self.min_relevance)
+        min_confidence = _dynamic_min_confidence(cards, self.min_confidence)
         for card in cards:
             assessment = card.get("candidate_assessment") or {}
             relationship = assessment.get("relationship")
@@ -72,8 +74,8 @@ class RelevanceGate:
                 rejection_reason=rejection_reason,
                 relevance=relevance,
                 confidence=confidence,
-                min_relevance=self.min_relevance,
-                min_confidence=self.min_confidence,
+                min_relevance=min_relevance,
+                min_confidence=min_confidence,
                 allow_background=self.allow_background,
             )
             if gate_reason:
@@ -95,11 +97,16 @@ def classify_relationship(
     partial_match = _partial_mechanism_match(
         query_mechanism, card_mechanism, mechanism_match
     )
+    polarity_match = _polarity_overlap(query_mechanism, card_mechanism)
 
-    if mechanism_match < 0.18 and topic_match < 0.18:
+    if mechanism_match < 0.08 and topic_match < 0.15:
         return Relationship.IRRELEVANT
+    if polarity_match and _opposes_claim(query_mechanism, card_mechanism):
+        return Relationship.CONTRADICTS
+    if polarity_match and _supports_claim(query_mechanism, card_mechanism):
+        return Relationship.SUPPORTS
     if not direct_match and not partial_match:
-        if mechanism_match >= 0.18 or topic_match >= 0.18:
+        if mechanism_match >= 0.08 or topic_match >= 0.18:
             return Relationship.BACKGROUND
         return Relationship.IRRELEVANT
     if not direct_match:
@@ -128,7 +135,7 @@ def rejection_reason(
         return "topic and mechanism mismatch"
     if relationship == Relationship.BACKGROUND:
         return "background topic overlap without usable mechanism match"
-    if relevance_score < 0.22:
+    if relevance_score < 0.18:
         return "low relevance score"
     return None
 
@@ -166,12 +173,26 @@ def _supports_claim(query_mechanism: Mechanism, card_mechanism: Mechanism) -> bo
     return query_mechanism.polarity == card_mechanism.polarity
 
 
+def _polarity_overlap(query_mechanism: Mechanism, card_mechanism: Mechanism) -> bool:
+    query_core = (
+        query_mechanism.cause_groups
+        | query_mechanism.effect_groups
+        | query_mechanism.object_groups
+    ) - query_mechanism.generic_terms
+    card_core = (
+        card_mechanism.cause_groups
+        | card_mechanism.effect_groups
+        | card_mechanism.object_groups
+    ) - card_mechanism.generic_terms
+    return bool(query_core & card_core)
+
+
 def _direct_mechanism_match(
     query_mechanism: Mechanism,
     card_mechanism: Mechanism,
     mechanism_match: float,
 ) -> bool:
-    if mechanism_match < 0.45:
+    if mechanism_match < 0.25:
         return False
     actor_match = (
         not query_mechanism.actor_groups
@@ -199,7 +220,7 @@ def _partial_mechanism_match(
     card_mechanism: Mechanism,
     mechanism_match: float,
 ) -> bool:
-    if mechanism_match < 0.32:
+    if mechanism_match < 0.12:
         return False
     cause_match = bool(
         query_mechanism.cause_groups
@@ -233,6 +254,34 @@ def _gate_rejection_reason(
     if confidence < min_confidence:
         return "low confidence"
     return None
+
+
+def _dynamic_min_relevance(cards: list[dict[str, Any]], floor: float) -> float:
+    scores = sorted(
+        (float((card.get("candidate_assessment") or {}).get("relevance_score") or 0) for card in cards),
+        reverse=True,
+    )
+    if not scores:
+        return floor
+    top = scores[0]
+    if top >= 0.75:
+        return max(floor, top * 0.35)
+    if top >= 0.45:
+        return max(floor, top * 0.45)
+    return max(0.16, min(floor, top * 0.65))
+
+
+def _dynamic_min_confidence(cards: list[dict[str, Any]], floor: float) -> float:
+    confidences = sorted(
+        (float((card.get("candidate_assessment") or {}).get("confidence") or 0) for card in cards),
+        reverse=True,
+    )
+    if not confidences:
+        return floor
+    top = confidences[0]
+    if top >= 0.7:
+        return max(floor, top * 0.35)
+    return max(0.16, min(floor, top * 0.55))
 
 
 def _with_rejection_reason(card: dict[str, Any], reason: str) -> dict[str, Any]:
