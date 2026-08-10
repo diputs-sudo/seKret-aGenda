@@ -17,7 +17,7 @@ from backend.llm import LLMError, OllamaLLM
 from backend.prompt import GenerationMode, PromptBuilder
 from backend.rag import RetrievalEngine, SearchRequest
 
-DEFAULT_PROMPT = "Opponent says AI escalates because of automation."
+DEFAULT_PROMPT = "Opponent says the proposal causes a major harm."
 
 
 def main() -> None:
@@ -218,17 +218,15 @@ def _mock_answer(argument: dict[str, Any]) -> str:
     second = evidence[1]["card_name"] if len(evidence) > 1 else None
     if second:
         return (
-            f"No.\n\n{first} answers the automation claim by showing humans still "
-            "control the key judgment calls around AI systems. "
-            f"{second} adds that regulatory or development constraints do not prove "
-            "runaway escalation by themselves. Together, the retrieved Hyperwar cards "
-            "give you a rebuttal: automation does not eliminate human control, and AI "
-            "can improve decision quality rather than force escalation.\n\nSources:\n"
+            f"No.\n\n{first} gives you the first answer from the retrieved backfile. "
+            f"{second} adds a second warrant, so the response is grounded in multiple "
+            "cards instead of a single generic analytic. Use the tags and highlights "
+            "to turn those warrants into the exact debate wording you need.\n\nSources:\n"
             f"- {first}\n- {second}"
         )
     return (
-        f"No.\n\n{first} answers the automation claim by showing the retrieved "
-        "evidence does not support runaway escalation.\n\nSources:\n"
+        f"No.\n\n{first} is the strongest retrieved card. Use its tag and highlighted "
+        "warrant as the core response, and mark anything beyond that as analysis.\n\nSources:\n"
         f"- {first}"
     )
 
