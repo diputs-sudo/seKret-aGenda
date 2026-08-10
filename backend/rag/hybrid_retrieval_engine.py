@@ -20,6 +20,7 @@ from backend.models.sqlite_store import (
 from backend.vector_db.chroma_store import ChromaVectorStore
 from backend.vector_db.schema import CARD_DEEP_COLLECTION, CARD_FAST_COLLECTION
 
+from .argument_builder import ArgumentBuilder
 from .candidate_assessment import RelevanceGate
 from .fusion import reciprocal_rank_fusion
 from .full_context_reranker import FullContextReranker
@@ -59,6 +60,7 @@ class HybridRetrievalEngine:
         self._deep_store = deep_store
         self.reranker = reranker or FullContextReranker()
         self.gate = gate or RelevanceGate()
+        self.argument_builder = ArgumentBuilder()
 
     def search(
         self, request: HybridSearchRequest | str, limit: int | None = None
@@ -78,9 +80,19 @@ class HybridRetrievalEngine:
         reranked = self.reranker.rerank(intent, filtered)
         if intent.search_mode == SearchMode.ARGUMENT:
             accepted, _ = self.gate.split(reranked)
-            return accepted[: intent.requested_count or request.limit]
+            bundle = self.argument_builder.build(
+                intent,
+                accepted,
+                limit=intent.requested_count or request.limit,
+            )
+            return bundle.cards
         accepted = _general_accept(reranked)
-        return accepted[: intent.requested_count or request.limit]
+        bundle = self.argument_builder.build(
+            intent,
+            accepted,
+            limit=intent.requested_count or request.limit,
+        )
+        return bundle.cards
 
     def retrieve_candidates(
         self,
@@ -116,6 +128,11 @@ class HybridRetrievalEngine:
         intent = parse_query_intent(request.query, mode=request.mode)
         lookup = self._lookup(intent, request)
         if lookup is not None:
+            bundle = self.argument_builder.build(
+                intent,
+                lookup,
+                limit=intent.requested_count or request.limit,
+            )
             return {
                 "intent": intent,
                 "retrieval_text": retrieval_text(intent),
@@ -124,7 +141,9 @@ class HybridRetrievalEngine:
                 "reranked": lookup,
                 "accepted": lookup,
                 "rejected": [],
-                "selected": lookup[: intent.requested_count or request.limit],
+                "selected": bundle.cards,
+                "clusters": [cluster.to_dict() for cluster in bundle.clusters],
+                "argument_bundle": bundle.to_dict(),
             }
 
         source_results = self.retrieve_candidates(intent, request)
@@ -137,6 +156,11 @@ class HybridRetrievalEngine:
         else:
             accepted = _general_accept(reranked)
             rejected = [row for row in reranked if row not in accepted]
+        bundle = self.argument_builder.build(
+            intent,
+            accepted,
+            limit=intent.requested_count or request.limit,
+        )
         return {
             "intent": intent,
             "retrieval_text": retrieval_text(intent),
@@ -145,7 +169,9 @@ class HybridRetrievalEngine:
             "reranked": reranked,
             "accepted": accepted,
             "rejected": rejected,
-            "selected": accepted[: intent.requested_count or request.limit],
+            "selected": bundle.cards,
+            "clusters": [cluster.to_dict() for cluster in bundle.clusters],
+            "argument_bundle": bundle.to_dict(),
         }
 
     def _lookup(
@@ -271,11 +297,24 @@ def _should_fallback_to_general(intent: QueryIntent) -> bool:
 
 
 def _general_accept(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    threshold = _general_threshold(rows)
     return [
         row
         for row in rows
-        if float(row.get("reranker_score") or 0) >= GENERAL_MIN_RELEVANCE
+        if float(row.get("reranker_score") or 0) >= threshold
     ]
+
+
+def _general_threshold(rows: list[dict[str, Any]]) -> float:
+    scores = sorted((float(row.get("reranker_score") or 0) for row in rows), reverse=True)
+    if not scores:
+        return GENERAL_MIN_RELEVANCE
+    top = scores[0]
+    if top >= 0.75:
+        return max(GENERAL_MIN_RELEVANCE, top * 0.35)
+    if top >= 0.45:
+        return max(GENERAL_MIN_RELEVANCE, top * 0.45)
+    return max(GENERAL_MIN_RELEVANCE, top * 0.7)
 
 
 def retrieval_text(intent: QueryIntent) -> str:
