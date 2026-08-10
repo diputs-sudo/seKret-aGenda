@@ -65,6 +65,19 @@ def main() -> None:
         print()
         for source, rows in trace["source_results"].items():
             print(f"{source}: {len(rows)} candidates")
+            if args.concept_debug:
+                for row in rows[:5]:
+                    metadata = row.get("metadata") or {}
+                    label = (
+                        row.get("card_name")
+                        or metadata.get("card_name")
+                        or row.get("author")
+                        or metadata.get("author")
+                        or row.get("card_id")
+                    )
+                    tag = row.get("tag") or metadata.get("tag") or ""
+                    score = row.get("score") or row.get("retrieval_score") or 0
+                    print(f"  - {float(score):.3f} {label}: {tag}")
         has_vector_sources = (
             "fast_vector" in trace["source_results"]
             or "deep_vector" in trace["source_results"]
@@ -79,6 +92,22 @@ def main() -> None:
         print(f"Reranked candidates: {len(trace['reranked'])}")
         print(f"Accepted candidates: {len(trace['accepted'])}")
         print(f"Rejected candidates: {len(trace['rejected'])}")
+        bundle = trace.get("argument_bundle") or {}
+        if bundle:
+            print(f"Source status: {bundle.get('source_status')}")
+            print(f"Main claim: {bundle.get('main_claim')}")
+            print(f"Clusters: {len(bundle.get('clusters') or [])}")
+        if args.concept_debug and trace.get("clusters"):
+            print()
+            print("Argument clusters")
+            print("-" * 45)
+            for cluster in trace["clusters"]:
+                print(
+                    f"{cluster.get('confidence', 0):.3f}  "
+                    f"{cluster.get('section')}  |  {cluster.get('thesis')}"
+                )
+                for card in cluster.get("cards", [])[:3]:
+                    print(f"- {card.get('card_name') or card.get('author') or 'Unknown'}")
         print()
 
     print("Hybrid results")
@@ -123,6 +152,9 @@ def main() -> None:
                     print(f"- {field_name}: {', '.join(matches)}")
             for reason in assessment.get("reasons", [])[:4]:
                 print(f"Reason: {reason}")
+            if args.concept_debug and row.get("reranker_input"):
+                print("Reranker input:")
+                print(str(row["reranker_input"])[:800])
         if row.get("highlights"):
             print("Highlights:")
             for highlight in row["highlights"]:
