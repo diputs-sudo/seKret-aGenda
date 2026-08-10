@@ -6,8 +6,8 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .relevance import QUERY_EXPANSIONS, _terms
 from .mechanism import extract_phrase_concepts, ignored_stopwords
+from .relevance import _terms
 
 AUTHOR_RE = re.compile(r"\bauthor:([A-Za-z][\w'’-]*)", re.IGNORECASE)
 YEAR_RE = re.compile(r"\byear:(\d{4})(?:-(\d{4}))?", re.IGNORECASE)
@@ -120,11 +120,7 @@ def _opponent_claim(text: str) -> str | None:
 
 
 def _concepts(text: str) -> list[str]:
-    terms = _terms(text)
-    expanded = set(terms)
-    for term in terms:
-        expanded.update(QUERY_EXPANSIONS.get(term, set()))
-    return sorted(expanded)
+    return sorted(_terms(text) | extract_phrase_concepts(text))
 
 
 def _first_group(pattern: re.Pattern[str], text: str) -> str | None:
