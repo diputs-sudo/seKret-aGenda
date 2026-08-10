@@ -37,66 +37,35 @@ STOPWORDS = {
     "why",
 }
 
-QUERY_EXPANSIONS = {
-    "ai": {"ai", "artificial", "intelligence", "algorithm", "autonomous"},
-    "automation": {
-        "ai",
-        "autonomous",
-        "automation",
-        "machine",
-        "human",
-        "humans",
-        "control",
-        "decision",
-        "decision-making",
-        "judgment",
-    },
-    "automated": {
-        "ai",
-        "autonomous",
-        "automation",
-        "machine",
-        "human",
-        "control",
-        "decision",
-        "judgment",
-    },
-    "escalate": {
-        "escalate",
-        "escalation",
-        "aggression",
-        "conflict",
-        "launch",
-        "risk",
-        "stability",
-        "war",
-        "warning",
-    },
-    "escalates": {
-        "escalate",
-        "escalation",
-        "aggression",
-        "conflict",
-        "launch",
-        "risk",
-        "stability",
-        "war",
-        "warning",
-    },
-    "escalation": {
-        "escalate",
-        "escalation",
-        "aggression",
-        "conflict",
-        "launch",
-        "risk",
-        "stability",
-        "war",
-        "warning",
-    },
-    "cautious": {"cautious", "confidence", "risk", "uncertainty", "limited"},
+SEMANTIC_STOPWORDS = {
+    "able",
+    "become",
+    "becomes",
+    "became",
+    "do",
+    "does",
+    "did",
+    "doing",
+    "get",
+    "gets",
+    "got",
+    "give",
+    "gives",
+    "given",
+    "make",
+    "makes",
+    "made",
+    "provide",
+    "provides",
+    "provided",
+    "show",
+    "shows",
+    "showing",
+    "use",
+    "uses",
+    "used",
+    "using",
 }
-
 
 @dataclass(frozen=True)
 class RerankResult:
@@ -158,23 +127,14 @@ class RelevanceReranker:
 
 
 def _expanded_terms(query: str) -> set[str]:
-    terms = _terms(query)
-    expanded = set(terms)
-    for term in terms:
-        expanded.update(QUERY_EXPANSIONS.get(term, set()))
-    return expanded - STOPWORDS
+    return _terms(query)
 
 
 def _covers_query_concepts(query: str, card_terms: set[str]) -> bool:
-    terms = _terms(query)
-    required_groups = [
-        QUERY_EXPANSIONS[term]
-        for term in terms
-        if term in QUERY_EXPANSIONS
-    ]
-    if not required_groups:
-        return True
-    return all(group & card_terms for group in required_groups)
+    query_terms = _terms(query)
+    if not query_terms:
+        return False
+    return bool(query_terms & card_terms)
 
 
 def _terms(text: str) -> set[str]:
@@ -182,6 +142,7 @@ def _terms(text: str) -> set[str]:
         token.lower()
         for token in re.findall(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)?", text)
         if token.lower() not in STOPWORDS
+        and token.lower() not in SEMANTIC_STOPWORDS
     }
 
 
