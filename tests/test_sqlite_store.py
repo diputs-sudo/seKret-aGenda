@@ -3,11 +3,15 @@ import sqlite3
 from backend.models import Citation, DebateDocument, EvidenceCard, HighlightSpan, Section
 from backend.models.sqlite_store import (
     card_highlights,
+    delete_embedding_records_by_vector_ids,
+    filter_changed_embedding_records,
     count_rows,
     embedding_records,
     init_db,
+    record_embedding_upserts,
     save_document,
     search_cards,
+    stale_embedding_vector_ids,
 )
 
 
@@ -186,3 +190,70 @@ def test_search_accepts_natural_language_punctuation():
     result = search_cards(connection, "Why is AI risk-averse?", limit=5)[0]
 
     assert result["id"] == "card-1"
+
+
+def test_embedding_index_metadata_tracks_changed_and_stale_records():
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    init_db(connection)
+
+    document = DebateDocument(name="Generic Backfile", id="doc-1")
+    section = Section(name="AT: Harm", document_id=document.id, id="section-1")
+    section.cards.append(
+        EvidenceCard(
+            id="card-1",
+            document_id=document.id,
+            section_id=section.id,
+            tag="Harm is overstated.",
+            card_name="Smith 24",
+            citation=Citation(raw="Smith 24, Journal.", author="Smith", year=2024),
+            body="The harm is smaller than opponents claim.",
+            highlights=[HighlightSpan(text="harm is smaller")],
+        )
+    )
+    document.sections.append(section)
+    save_document(connection, document)
+    records = embedding_records(connection)
+
+    changed, skipped = filter_changed_embedding_records(
+        connection,
+        records,
+        kind="fast",
+        embedding_model="fake-model",
+    )
+    assert changed == records
+    assert skipped == 0
+
+    record_embedding_upserts(
+        connection,
+        records,
+        kind="fast",
+        embedding_model="fake-model",
+        vector_collection="cards_fast",
+    )
+    changed, skipped = filter_changed_embedding_records(
+        connection,
+        records,
+        kind="fast",
+        embedding_model="fake-model",
+    )
+    assert changed == []
+    assert skipped == 1
+
+    stale = stale_embedding_vector_ids(
+        connection,
+        kind="fast",
+        embedding_model="fake-model",
+        live_card_ids=set(),
+    )
+    assert stale == ["card-1"]
+    delete_embedding_records_by_vector_ids(
+        connection,
+        kind="fast",
+        embedding_model="fake-model",
+        vector_ids=stale,
+    )
+    assert (
+        connection.execute("SELECT COUNT(*) FROM card_embeddings").fetchone()[0]
+        == 0
+    )
