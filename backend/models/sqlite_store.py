@@ -8,6 +8,7 @@ import sqlite3
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
+from datetime import datetime, timezone
 
 from backend.models import DebateDocument, EmbeddingKind, EvidenceCard
 
@@ -596,6 +597,182 @@ def embedding_records(
     return records
 
 
+def stale_embedding_vector_ids(
+    connection: sqlite3.Connection,
+    *,
+    kind: EmbeddingKind | str,
+    embedding_model: str,
+    live_card_ids: set[str],
+) -> list[str]:
+    kind = EmbeddingKind(kind)
+    rows = connection.execute(
+        """
+        SELECT card_id, vector_id
+        FROM card_embeddings
+        WHERE embedding_kind = ? AND embedding_model = ?
+        """,
+        (kind.value, embedding_model),
+    ).fetchall()
+    return [
+        str(row["vector_id"])
+        for row in rows
+        if str(row["card_id"]) not in live_card_ids
+    ]
+
+
+def filter_changed_embedding_records(
+    connection: sqlite3.Connection,
+    records: list[dict[str, object]],
+    *,
+    kind: EmbeddingKind | str,
+    embedding_model: str,
+) -> tuple[list[dict[str, object]], int]:
+    kind = EmbeddingKind(kind)
+    rows = connection.execute(
+        """
+        SELECT card_id, source_text_hash
+        FROM card_embeddings
+        WHERE embedding_kind = ? AND embedding_model = ?
+        """,
+        (kind.value, embedding_model),
+    ).fetchall()
+    hashes = {str(row["card_id"]): str(row["source_text_hash"]) for row in rows}
+    changed = [
+        record
+        for record in records
+        if hashes.get(str(record["card_id"])) != str(record["source_text_hash"])
+    ]
+    return changed, len(records) - len(changed)
+
+
+def record_embedding_upserts(
+    connection: sqlite3.Connection,
+    records: list[dict[str, object]],
+    *,
+    kind: EmbeddingKind | str,
+    embedding_model: str,
+    vector_collection: str,
+) -> None:
+    kind = EmbeddingKind(kind)
+    now = _utc_now()
+    with connection:
+        for record in records:
+            connection.execute(
+                """
+                INSERT INTO card_embeddings (
+                    id, card_id, embedding_kind, embedding_model, source_text_hash,
+                    vector_collection, vector_id, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(card_id, embedding_kind, embedding_model)
+                DO UPDATE SET
+                    source_text_hash = excluded.source_text_hash,
+                    vector_collection = excluded.vector_collection,
+                    vector_id = excluded.vector_id,
+                    created_at = excluded.created_at
+                """,
+                (
+                    str(uuid4()),
+                    record["card_id"],
+                    kind.value,
+                    embedding_model,
+                    record["source_text_hash"],
+                    vector_collection,
+                    record["card_id"],
+                    now,
+                ),
+            )
+
+
+def delete_embedding_records_by_vector_ids(
+    connection: sqlite3.Connection,
+    *,
+    kind: EmbeddingKind | str,
+    embedding_model: str,
+    vector_ids: list[str],
+) -> None:
+    if not vector_ids:
+        return
+    kind = EmbeddingKind(kind)
+    placeholders = ",".join("?" for _ in vector_ids)
+    with connection:
+        connection.execute(
+            f"""
+            DELETE FROM card_embeddings
+            WHERE embedding_kind = ?
+              AND embedding_model = ?
+              AND vector_id IN ({placeholders})
+            """,
+            (kind.value, embedding_model, *vector_ids),
+        )
+
+
+def start_index_run(
+    connection: sqlite3.Connection,
+    *,
+    parser_version: str,
+    embedding_model: str,
+    embedding_version: str,
+    embedding_kind: str,
+    vector_collection: str,
+) -> str:
+    run_id = str(uuid4())
+    with connection:
+        connection.execute(
+            """
+            INSERT INTO index_runs (
+                id, started_at, parser_version, embedding_model,
+                embedding_version, embedding_kind, vector_collection
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                _utc_now(),
+                parser_version,
+                embedding_model,
+                embedding_version,
+                embedding_kind,
+                vector_collection,
+            ),
+        )
+    return run_id
+
+
+def complete_index_run(
+    connection: sqlite3.Connection,
+    run_id: str,
+    *,
+    cards_added: int = 0,
+    cards_updated: int = 0,
+    cards_deleted: int = 0,
+    cards_skipped: int = 0,
+    failures: list[str] | None = None,
+) -> None:
+    with connection:
+        connection.execute(
+            """
+            UPDATE index_runs
+            SET completed_at = ?,
+                cards_added = ?,
+                cards_updated = ?,
+                cards_deleted = ?,
+                cards_skipped = ?,
+                failures_json = ?
+            WHERE id = ?
+            """,
+            (
+                _utc_now(),
+                cards_added,
+                cards_updated,
+                cards_deleted,
+                cards_skipped,
+                json.dumps(failures or []),
+                run_id,
+            ),
+        )
+
+
 def _insert_card(connection: sqlite3.Connection, card: EvidenceCard) -> None:
     topical = None if card.topical is None else int(card.topical)
     connection.execute(
@@ -688,6 +865,10 @@ def _insert_card(connection: sqlite3.Connection, card: EvidenceCard) -> None:
 
 def _text_hash(text: str) -> str:
     return sha256(text.encode("utf-8")).hexdigest()
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _json_object(raw: str | None) -> dict[str, object]:
