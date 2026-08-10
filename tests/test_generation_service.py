@@ -48,8 +48,11 @@ def test_generation_service_searches_builds_prompt_and_generates(tmp_path):
     )
 
     assert "Tucker 20" in result["answer"]
+    assert result["answer"].startswith("[BACKFILE-SOURCED]")
     assert result["mode"] == "draft"
     assert result["cards"][0]["card_id"] == "card-1"
+    assert result["argument_bundle"]["source_status"] == "BACKFILE-SOURCED"
+    assert result["source_integrity"]["source_status"] == "BACKFILE-SOURCED"
     assert "prompt" in result
 
 
