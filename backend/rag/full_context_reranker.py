@@ -12,7 +12,6 @@ from .candidate_assessment import (
     rejection_reason,
 )
 from .mechanism import (
-    GENERIC_CONCEPTS,
     extract_phrase_concepts,
     mechanism_concepts,
     mechanism_match,
@@ -62,7 +61,11 @@ class FullContextReranker:
     def assess(self, intent: QueryIntent, card: dict[str, Any]) -> CandidateAssessment:
         query_text = intent.opponent_claim or intent.search_text or intent.raw_query
         query_mechanism = parse_mechanism(query_text)
-        query_terms = _terms(query_text) | query_mechanism.phrase_concepts
+        query_terms = (
+            _terms(query_text)
+            | query_mechanism.phrase_concepts
+            | query_mechanism.object_groups
+        ) - query_mechanism.generic_terms
         card_mechanism = parse_mechanism(_card_mechanism_text(card))
         matched_concepts, missing_concepts = mechanism_concepts(
             query_mechanism, card_mechanism
@@ -125,7 +128,7 @@ class FullContextReranker:
         )
         if same_section_only:
             score *= 0.2
-        if mechanism < 0.25:
+        if mechanism < 0.12:
             score *= 0.45
         if not (tag_hits or highlight_hits or body_hits):
             score *= 0.4
@@ -378,11 +381,15 @@ def _calibrated_relevance(raw_score: float) -> float:
 def _term_weight(term: str) -> float:
     if "_" in term:
         return 2.5
-    if term in GENERIC_CONCEPTS:
-        return 0.2
+    if _is_low_signal_term(term):
+        return 0.35
     if term in {"ai"}:
         return 0.6
     return 1.0
+
+
+def _is_low_signal_term(term: str) -> bool:
+    return len(term) <= 2 or term.isdigit()
 
 
 def _match_locations(query_terms: set[str], card: dict[str, Any]) -> dict[str, list[str]]:
