@@ -87,6 +87,22 @@ CREATE TABLE IF NOT EXISTS card_embeddings (
     UNIQUE(card_id, embedding_kind, embedding_model)
 );
 
+CREATE TABLE IF NOT EXISTS index_runs (
+    id TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    parser_version TEXT,
+    embedding_model TEXT NOT NULL,
+    embedding_version TEXT NOT NULL,
+    embedding_kind TEXT NOT NULL,
+    vector_collection TEXT NOT NULL,
+    cards_added INTEGER NOT NULL DEFAULT 0,
+    cards_updated INTEGER NOT NULL DEFAULT 0,
+    cards_deleted INTEGER NOT NULL DEFAULT 0,
+    cards_skipped INTEGER NOT NULL DEFAULT 0,
+    failures_json TEXT NOT NULL DEFAULT '[]'
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS evidence_cards_fts USING fts5(
     card_id UNINDEXED,
     tag,
@@ -116,3 +132,6 @@ CREATE INDEX IF NOT EXISTS idx_highlights_card_id
 
 CREATE INDEX IF NOT EXISTS idx_card_embeddings_card_id
     ON card_embeddings(card_id);
+
+CREATE INDEX IF NOT EXISTS idx_index_runs_started_at
+    ON index_runs(started_at);
