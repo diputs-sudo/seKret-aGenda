@@ -9,7 +9,7 @@ from typing import Any
 
 from backend.llm import LLM
 from backend.prompt import GenerationMode, PromptBuilder
-from backend.rag import RetrievalEngine, SearchRequest
+from backend.rag import ArgumentBuilder, RetrievalEngine, SearchRequest, validate_sources
 
 
 @dataclass(frozen=True)
@@ -18,6 +18,8 @@ class GenerationResult:
     mode: str
     answer: str
     cards: list[dict[str, Any]]
+    argument_bundle: dict[str, Any]
+    source_integrity: dict[str, Any]
     prompt: str
 
     def to_dict(self, include_prompt: bool = False) -> dict[str, Any]:
@@ -37,6 +39,7 @@ class GenerationService:
         self.retrieval = RetrievalEngine(db_path)
         self.llm = llm
         self.prompt_builder = prompt_builder
+        self.argument_builder = ArgumentBuilder()
 
     def generate(
         self,
@@ -47,13 +50,18 @@ class GenerationService:
     ) -> dict[str, Any]:
         mode = GenerationMode(mode)
         cards = self.retrieval.search(SearchRequest(query=query, limit=limit))
-        prompt = self.prompt_builder.build(query, cards, mode=mode)
+        bundle = self.argument_builder.build(query, cards, limit=limit)
+        prompt = self.prompt_builder.build_from_bundle(bundle, mode=mode)
         answer = self.llm.generate(prompt)
+        source_integrity = validate_sources(answer, bundle)
+        answer = _enforce_source_label(answer, source_integrity.source_status)
         result = GenerationResult(
             query=query,
             mode=mode.value,
             answer=answer,
-            cards=cards,
+            cards=bundle.cards,
+            argument_bundle=bundle.to_dict(),
+            source_integrity=source_integrity.to_dict(),
             prompt=prompt,
         )
         return result.to_dict(include_prompt=include_prompt)
@@ -66,5 +74,14 @@ class GenerationService:
     ) -> tuple[list[dict[str, Any]], Iterator[str]]:
         mode = GenerationMode(mode)
         cards = self.retrieval.search(SearchRequest(query=query, limit=limit))
-        prompt = self.prompt_builder.build(query, cards, mode=mode)
-        return cards, self.llm.stream(prompt)
+        bundle = self.argument_builder.build(query, cards, limit=limit)
+        prompt = self.prompt_builder.build_from_bundle(bundle, mode=mode)
+        return bundle.cards, self.llm.stream(prompt)
+
+
+def _enforce_source_label(answer: str, source_status: str) -> str:
+    label = f"[{source_status}]"
+    stripped = answer.lstrip()
+    if stripped.startswith("[BACKFILE-SOURCED]") or stripped.startswith("[ANALYSIS ONLY]"):
+        return answer
+    return f"{label}\n{answer}"
