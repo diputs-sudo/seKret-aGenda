@@ -1,0 +1,259 @@
+
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="1024"
+  height="1024"
+  viewBox="0 0 1024 1024"
+>
+  <defs>
+
+    <linearGradient
+      id="background"
+      x1="0"
+      y1="0"
+      x2="1"
+      y2="1"
+    >
+      <stop
+        offset="0%"
+        stop-color="#24272b"
+      />
+      <stop
+        offset="68%"
+        stop-color="#17191c"
+      />
+      <stop
+        offset="100%"
+        stop-color="#131416"
+      />
+    </linearGradient>
+
+    <linearGradient
+      id="paper"
+      x1="0"
+      y1="0"
+      x2="1"
+      y2="1"
+    >
+      <stop
+        offset="0%"
+        stop-color="#d7d5cf"
+      />
+      <stop
+        offset="100%"
+        stop-color="#bfc2c2"
+      />
+    </linearGradient>
+
+    <linearGradient
+      id="scan"
+      x1="0"
+      y1="0"
+      x2="1"
+      y2="0"
+    >
+      <stop
+        offset="0%"
+        stop-color="#7f8d96"
+      />
+      <stop
+        offset="100%"
+        stop-color="#a49a88"
+      />
+    </linearGradient>
+
+    <filter
+      id="shadow"
+      x="-30%"
+      y="-30%"
+      width="160%"
+      height="160%"
+    >
+      <feDropShadow
+        dx="0"
+        dy="18"
+        stdDeviation="18"
+        flood-color="#000000"
+        flood-opacity=".25"
+      />
+    </filter>
+
+    <filter
+      id="sShadow"
+      x="-30%"
+      y="-30%"
+      width="160%"
+      height="160%"
+    >
+      <feDropShadow
+        dx="0"
+        dy="12"
+        stdDeviation="10"
+        flood-color="#000000"
+        flood-opacity=".45"
+      />
+    </filter>
+
+    <clipPath id="clip">
+      <rect
+        width="1024"
+        height="1024"
+        rx="235"
+      />
+    </clipPath>
+
+  </defs>
+
+  <g clip-path="url(#clip)">
+
+    <rect
+      width="1024"
+      height="1024"
+      fill="url(#background)"
+    />
+
+    <g
+      transform="translate(240 190) rotate(-10 215 285)"
+      filter="url(#shadow)"
+    >
+
+      <rect
+        width="430"
+        height="570"
+        rx="70"
+        fill="url(#paper)"
+      />
+
+      <rect
+        x="70"
+        y="115"
+        width="290"
+        height="28"
+        rx="14"
+        fill="#9fa3a3"
+      />
+
+      <rect
+        x="70"
+        y="190"
+        width="230"
+        height="28"
+        rx="14"
+        fill="#9fa3a3"
+      />
+
+      <rect
+        x="60"
+        y="270"
+        width="310"
+        height="48"
+        rx="12"
+        fill="#232529"
+      />
+
+      <rect
+        x="105"
+        y="345"
+        width="265"
+        height="48"
+        rx="12"
+        fill="#232529"
+      />
+
+      <rect
+        x="120"
+        y="440"
+        width="240"
+        height="28"
+        rx="14"
+        fill="#9fa3a3"
+      />
+
+    </g>
+
+    <g
+      transform="translate(370 280) rotate(10 215 285)"
+      filter="url(#shadow)"
+    >
+
+      <rect
+        width="430"
+        height="570"
+        rx="70"
+        fill="url(#paper)"
+      />
+
+      <rect
+        x="70"
+        y="115"
+        width="290"
+        height="28"
+        rx="14"
+        fill="#9fa3a3"
+      />
+
+      <rect
+        x="70"
+        y="190"
+        width="230"
+        height="28"
+        rx="14"
+        fill="#9fa3a3"
+      />
+
+      <rect
+        x="60"
+        y="270"
+        width="310"
+        height="48"
+        rx="12"
+        fill="#232529"
+      />
+
+      <rect
+        x="105"
+        y="345"
+        width="265"
+        height="48"
+        rx="12"
+        fill="#232529"
+      />
+
+      <rect
+        x="120"
+        y="440"
+        width="240"
+        height="28"
+        rx="14"
+        fill="#9fa3a3"
+      />
+
+    </g>
+
+    <rect
+      x="135"
+      y="500"
+      width="755"
+      height="58"
+      rx="29"
+      fill="url(#scan)"
+      transform="rotate(-4 512 529)"
+    />
+
+    <text
+      x="512"
+      y="690"
+      text-anchor="middle"
+      font-family="Arial, Helvetica, sans-serif"
+      font-size="480"
+      font-weight="900"
+      fill="#f1eee6"
+      stroke="rgba(255,255,255,.16)"
+      stroke-width="2"
+      paint-order="stroke"
+      filter="url(#sShadow)"
+    >S</text>
+
+  </g>
+
+</svg>
