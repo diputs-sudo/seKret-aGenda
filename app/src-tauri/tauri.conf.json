@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Secret Agenda",
+  "version": "0.1.0",
+  "identifier": "dev.secretagenda.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev:frontend",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build:frontend",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Secret Agenda",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 980,
+        "minHeight": 620
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Competitive debate workspace",
+    "longDescription": "A desktop IDE/workspace for debate evidence, research, round prep, and source-grounded drafting."
+  }
+}
