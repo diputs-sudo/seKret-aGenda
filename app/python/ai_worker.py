@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Placeholder Python worker for future AI/ML features.
 
-The Qt application owns the native UI and local database workflow. This worker
-is intentionally tiny for now, but gives the app a stable process boundary for
-future embedding, reranking, and generation calls.
+The Tauri application owns the desktop UI and local database workflow. This
+worker is intentionally tiny for now, but gives the app a stable process
+boundary for future embedding, reranking, and generation calls.
 """
 
 from __future__ import annotations
