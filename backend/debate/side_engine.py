@@ -17,7 +17,7 @@ from .model import (
     SideSearchResult,
 )
 from .query import parse_debate_query
-from .relationships import classify_claim_relationship
+from .relationships import claim_component_coverage, classify_claim_relationship
 
 
 class DebateSideEngine:
@@ -134,25 +134,42 @@ class DebateSideEngine:
             claim_assessment = classify_claim_relationship(claim_text, card)
             if relationship_cache is not None:
                 relationship_cache[cache_key] = claim_assessment
+        coverage = claim_component_coverage(claim_text, card)
         original_relationship = str(
             assessment.get("relationship") or ClaimRelationship.IRRELEVANT.value
         )
         relationship = claim_assessment.relationship.value
         retrieval_score = _float(card.get("retrieval_score") or card.get("score"))
+        coverage_score = _coverage_score(coverage)
+        attack_score = _attack_alignment_score(coverage)
+        source_quality = _coverage_source_quality(coverage)
+        relevance_score = max(
+            claim_assessment.overlap,
+            coverage_score,
+            _float(assessment.get("relevance_score")) * 0.55,
+        )
         topic_score = max(claim_assessment.overlap, _float(assessment.get("topic_match")) * 0.5)
         mechanism_score = max(
             claim_assessment.mechanism,
             _float(assessment.get("mechanism_match")) * 0.5,
+            attack_score * 0.62,
         )
         warrant_score = max(
             claim_assessment.to_result().warrant_match,
             _float(assessment.get("warrant_match")) * 0.5,
+            attack_score * 0.55,
         )
         relationship_confidence = max(
             claim_assessment.confidence,
             _float(assessment.get("confidence")) * 0.6,
         )
-        directness = claim_assessment.directness
+        directness = round(
+            claim_assessment.directness * 0.42
+            + coverage_score * 0.32
+            + attack_score * 0.2
+            + source_quality * 0.06,
+            3,
+        )
         evidence_strength = _float(assessment.get("evidence_strength"))
         owner_utility = _owner_utility(query.intent, owner)
         relationship_utility = _relationship_utility(query.intent, relationship)
@@ -164,6 +181,9 @@ class DebateSideEngine:
             warrant_score=warrant_score,
             relationship_confidence=relationship_confidence,
             directness=directness,
+            coverage_score=coverage_score,
+            attack_score=attack_score,
+            source_quality=source_quality,
             evidence_strength=evidence_strength,
             owner_utility=owner_utility,
             relationship_utility=relationship_utility,
@@ -175,8 +195,13 @@ class DebateSideEngine:
             f"side={formal_side.value}",
             f"relationship={relationship}",
             f"retrieval_relationship={original_relationship}",
+            f"relevance={relevance_score:.3f}",
             f"directness={directness:.3f}",
+            f"coverage={coverage_score:.3f}",
+            f"attack={attack_score:.3f}",
+            f"source_quality={source_quality:.3f}",
         ]
+        reasons.extend(str(warning) for warning in coverage.get("warnings", [])[:2])
         reasons.extend(claim_assessment.reasons[:2])
         if owner == Owner.OPPONENT and query.intent == DebateIntent.ANSWER:
             reasons.append("kept in opponent lane, not as our answer")
@@ -188,9 +213,11 @@ class DebateSideEngine:
             retrieval_score=retrieval_score,
             owner=owner,
             formal_side=formal_side,
+            relevance_score=relevance_score,
             topic_score=topic_score,
             mechanism_score=mechanism_score,
             warrant_score=warrant_score,
+            coverage=coverage,
             relationship=relationship,
             relationship_confidence=relationship_confidence,
             directness=directness,
@@ -231,6 +258,9 @@ class DebateSideEngine:
                 warrant_score=candidate.warrant_score,
                 relationship_confidence=candidate.relationship_confidence,
                 directness=candidate.directness,
+                coverage_score=_coverage_score(candidate.coverage),
+                attack_score=_attack_alignment_score(candidate.coverage),
+                source_quality=_coverage_source_quality(candidate.coverage),
                 evidence_strength=candidate.evidence_strength,
                 owner_utility=owner_utility,
                 relationship_utility=relationship_utility,
@@ -276,6 +306,9 @@ def _top_lane(
             warrant_score=candidate.warrant_score,
             relationship_confidence=candidate.relationship_confidence,
             directness=candidate.directness,
+            coverage_score=_coverage_score(candidate.coverage),
+            attack_score=_attack_alignment_score(candidate.coverage),
+            source_quality=_coverage_source_quality(candidate.coverage),
             evidence_strength=candidate.evidence_strength,
             owner_utility=owner_utility,
             relationship_utility=relationship_utility,
@@ -332,6 +365,9 @@ def _final_score(
     warrant_score: float,
     relationship_confidence: float,
     directness: float,
+    coverage_score: float,
+    attack_score: float,
+    source_quality: float,
     evidence_strength: float,
     owner_utility: float,
     relationship_utility: float,
@@ -345,12 +381,15 @@ def _final_score(
         * max(0.2, owner_utility)
     )
     score = base * 0.72 + (
-        topic_score * 0.06
+        topic_score * 0.04
         + mechanism_score * 0.08
         + warrant_score * 0.05
-        + directness * 0.05
-        + evidence_strength * 0.025
-        + side_utility * 0.015
+        + directness * 0.065
+        + coverage_score * 0.07
+        + attack_score * 0.085
+        + source_quality * 0.03
+        + evidence_strength * 0.015
+        + side_utility * 0.005
     )
     return round(max(0.0, min(1.0, score)), 3)
 
@@ -612,3 +651,16 @@ def _float(value: Any) -> float:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _coverage_score(coverage: dict[str, Any]) -> float:
+    return _float((coverage or {}).get("score"))
+
+
+def _coverage_source_quality(coverage: dict[str, Any]) -> float:
+    return _float((coverage or {}).get("source_quality"))
+
+
+def _attack_alignment_score(coverage: dict[str, Any]) -> float:
+    attack = (coverage or {}).get("attack_alignment") or {}
+    return _float(attack.get("score") if isinstance(attack, dict) else 0.0)
