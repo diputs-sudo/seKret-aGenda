@@ -47,6 +47,8 @@ Environment:
   OUR_SIDE=$OUR_SIDE
   OPPONENT_SIDE=$OPPONENT_SIDE
   RESOLUTION=$RESOLUTION
+  SEKRET_OLLAMA_NUM_GPU=${SEKRET_OLLAMA_NUM_GPU:-}
+  SEKRET_OLLAMA_MAIN_GPU=${SEKRET_OLLAMA_MAIN_GPU:-}
 
 Examples:
   ./run.sh rebuild
@@ -56,6 +58,8 @@ Examples:
   ./run.sh hybrid --concept-debug "Opponent says AI escalates because of automation."
   ./run.sh side "opponent says AI sports betting increases addiction"
   ./run.sh side --no-vector --debug-candidates "opponent says AI sports betting increases addiction"
+  ./run.sh side --debug-candidates --target-novel 8 --max-depth 120 --max-active-probes 3 "opponent says AI sports betting increases addiction"
+  SEKRET_OLLAMA_NUM_GPU=999 ./run.sh side --debug-candidates "opponent says AI sports betting increases addiction"
   OUR_SIDE=negative OPPONENT_SIDE=affirmative ./run.sh side "opponent says AI sports betting increases addiction"
   ./run.sh format-preview data/opponent.txt docs/opponent-format.sa
   ./run.sh cli
@@ -157,13 +161,30 @@ case "$command" in
 
   side)
     side_flags=()
-    while [[ "${1:-}" == "--no-vector" || "${1:-}" == "--debug-candidates" ]]; do
-      side_flags+=("$1")
-      shift
+    query_parts=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --no-vector|--debug-candidates)
+          side_flags+=("$1")
+          shift
+          ;;
+        --target-novel|--max-depth|--max-active-probes|--limit|--candidate-limit|--model)
+          if [[ $# -lt 2 ]]; then
+            echo "Missing value for $1"
+            exit 1
+          fi
+          side_flags+=("$1" "$2")
+          shift 2
+          ;;
+        *)
+          query_parts+=("$1")
+          shift
+          ;;
+      esac
     done
-    require_query "$@"
+    require_query "${query_parts[@]}"
     python3 scripts/query_side.py \
-      "$*" \
+      "${query_parts[*]}" \
       --db "$DB_PATH" \
       --chroma "$CHROMA_PATH" \
       --our-side "$OUR_SIDE" \
