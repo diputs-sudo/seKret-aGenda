@@ -15,8 +15,8 @@
     "expected": "NON_UNIQUE"
   },
   {
-    "claim": "AI personalization increases betting addiction",
-    "card": "Federal rules prohibit individualized promotions and reduce targeting of vulnerable bettors.",
+    "claim": "Personalized promotions increase bettor targeting",
+    "card": "Federal rules prohibit personalized promotions and reduce bettor targeting.",
     "expected": "CONTRADICTS"
   },
   {
