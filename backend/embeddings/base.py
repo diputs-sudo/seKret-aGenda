@@ -19,3 +19,9 @@ class Embedder(ABC):
     def embed(self, text: str) -> list[float]:
         """Embed one text string."""
 
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        """Embed multiple text strings.
+
+        Implementations can override this with a backend-native batch request.
+        """
+        return [self.embed(text) for text in texts]
