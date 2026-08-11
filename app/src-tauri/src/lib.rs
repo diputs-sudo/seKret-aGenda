@@ -1,3 +1,5 @@
+mod hybrid;
+
 use rusqlite::{Connection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -10,6 +12,7 @@ struct SearchQuery {
     text: String,
     limit: Option<usize>,
     mode: Option<String>,
+    scope: Option<String>,
     include_diagnostics: Option<bool>,
 }
 
@@ -36,7 +39,45 @@ struct EvidenceCard {
     highlights: Vec<Highlight>,
     score: f64,
     document_name: String,
+    side: Option<String>,
     diagnostics: Option<SearchDiagnostics>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RoundSourceImportRequest {
+    side: String,
+    round_id: Option<String>,
+    source_path: Option<String>,
+    source_name: Option<String>,
+    source_text: Option<String>,
+    grammar_path: Option<String>,
+    grammar_name: Option<String>,
+    grammar_text: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RoundSourceState {
+    id: String,
+    filename: String,
+    path: String,
+    side: String,
+    status: String,
+    card_count: usize,
+    parse_progress: f64,
+    index_progress: f64,
+    error: String,
+    diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RoundEvidenceQuery {
+    round_id: Option<String>,
+    scope: Option<String>,
+    query: Option<String>,
+    limit: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -152,10 +193,14 @@ fn save_workspace(app: tauri::AppHandle, workspace: WorkspaceState) -> Result<()
 #[tauri::command]
 fn search_evidence(app: tauri::AppHandle, query: SearchQuery) -> Result<Vec<EvidenceCard>, String> {
     let db_path = default_database_path(&app)?;
-    let connection = Connection::open(db_path).map_err(|error| error.to_string())?;
     let limit = query.limit.unwrap_or(20).clamp(1, 100);
     let trimmed = query.text.trim();
 
+    if !trimmed.is_empty() && query.mode.as_deref() == Some("hybrid") {
+        return hybrid::search(&db_path, &query);
+    }
+
+    let connection = Connection::open(db_path).map_err(|error| error.to_string())?;
     if trimmed.is_empty() {
         return recent_cards(&connection, limit, query.include_diagnostics.unwrap_or(false))
             .map_err(|error| error.to_string());
@@ -168,6 +213,59 @@ fn search_evidence(app: tauri::AppHandle, query: SearchQuery) -> Result<Vec<Evid
             .map_err(|error| error.to_string())?;
     }
     Ok(cards)
+}
+
+#[tauri::command]
+fn import_round_source(app: tauri::AppHandle, request: RoundSourceImportRequest) -> Result<RoundSourceState, String> {
+    let round_id = request.round_id.as_deref().unwrap_or("default-round");
+    let source_path = materialize_round_upload(
+        &app,
+        round_id,
+        request.source_path.as_deref(),
+        request.source_name.as_deref(),
+        request.source_text.as_deref(),
+        "source.txt",
+    )?;
+    let db_path = round_database_path(&app, round_id)?;
+    initialize_round_database(&db_path)?;
+
+    if request.side != "opponent" {
+        return Ok(RoundSourceState {
+            id: format!("source-{}", request.side),
+            filename: PathBuf::from(&source_path)
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| source_path.to_string_lossy().to_string()),
+            path: source_path.to_string_lossy().to_string(),
+            side: request.side,
+            status: "loaded".into(),
+            card_count: 0,
+            parse_progress: 0.0,
+            index_progress: 0.0,
+            error: String::new(),
+            diagnostics: vec!["Native import currently supports opponent .txt plus .sa DSL sources.".into()],
+        });
+    }
+
+    let grammar_path = materialize_round_upload(
+        &app,
+        round_id,
+        request.grammar_path.as_deref(),
+        request.grammar_name.as_deref(),
+        request.grammar_text.as_deref(),
+        "grammar.sa",
+    )?;
+    hybrid::import_opponent_dsl(&db_path, &source_path, &grammar_path)
+}
+
+#[tauri::command]
+fn list_round_evidence(app: tauri::AppHandle, query: RoundEvidenceQuery) -> Result<Vec<EvidenceCard>, String> {
+    let db_path = round_database_path_or_default(&app, query.round_id.as_deref())?;
+    let connection = Connection::open(db_path).map_err(|error| error.to_string())?;
+    let limit = query.limit.unwrap_or(100).clamp(1, 300);
+    let scope = query.scope.unwrap_or_else(|| "both".into());
+    let text = query.query.unwrap_or_default();
+    round_cards(&connection, &scope, text.trim(), limit).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -212,6 +310,79 @@ fn default_database_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .ok_or_else(|| "Database not found. Set SEKRET_DB_PATH or build var/sekret-agenda.sqlite3.".to_string())
 }
 
+fn round_database_path(app: &tauri::AppHandle, round_id: &str) -> Result<PathBuf, String> {
+    let safe_round = safe_filename(round_id);
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("rounds")
+        .join(safe_round);
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    Ok(dir.join("round.sqlite3"))
+}
+
+fn round_database_path_or_default(app: &tauri::AppHandle, round_id: Option<&str>) -> Result<PathBuf, String> {
+    if let Some(round_id) = round_id.filter(|value| !value.trim().is_empty()) {
+        let path = round_database_path(app, round_id)?;
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+    default_database_path(app)
+}
+
+fn initialize_round_database(path: &PathBuf) -> Result<(), String> {
+    let connection = Connection::open(path).map_err(|error| error.to_string())?;
+    connection
+        .execute_batch(include_str!("../../../backend/models/sqlite_schema.sql"))
+        .map_err(|error| error.to_string())
+}
+
+fn materialize_round_upload(
+    app: &tauri::AppHandle,
+    round_id: &str,
+    path: Option<&str>,
+    name: Option<&str>,
+    text: Option<&str>,
+    fallback_name: &str,
+) -> Result<PathBuf, String> {
+    if let Some(path) = path.filter(|value| !value.trim().is_empty()) {
+        return Ok(PathBuf::from(path));
+    }
+    let text = text.ok_or_else(|| format!("Missing uploaded file content for {fallback_name}."))?;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("rounds")
+        .join(safe_filename(round_id))
+        .join("uploads");
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    let filename = safe_filename(name.filter(|value| !value.trim().is_empty()).unwrap_or(fallback_name));
+    let upload_path = dir.join(filename);
+    std::fs::write(&upload_path, text).map_err(|error| error.to_string())?;
+    Ok(upload_path)
+}
+
+fn safe_filename(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '.' || character == '-' || character == '_' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if sanitized.trim_matches('_').is_empty() {
+        "round".into()
+    } else {
+        sanitized
+    }
+}
+
 fn recent_cards(connection: &Connection, limit: usize, diagnostics: bool) -> SqlResult<Vec<EvidenceCard>> {
     let sql = format!(
         "{} ORDER BY sections.order_index, evidence_cards.paragraph_start LIMIT ?1",
@@ -220,6 +391,32 @@ fn recent_cards(connection: &Connection, limit: usize, diagnostics: bool) -> Sql
     let mut statement = connection.prepare(&sql)?;
     let rows = statement.query_map([limit as i64], |row| {
         card_from_row(connection, row, 0.0, diagnostics)
+    })?;
+    rows.collect()
+}
+
+fn round_cards(connection: &Connection, scope: &str, text: &str, limit: usize) -> SqlResult<Vec<EvidenceCard>> {
+    let side_clause = if scope == "ours" || scope == "opponent" {
+        "WHERE evidence_cards.side = ?1"
+    } else {
+        "WHERE 1 = ?1"
+    };
+    let text_clause = if text.is_empty() {
+        ""
+    } else {
+        " AND (evidence_cards.tag LIKE ?2 OR evidence_cards.card_name LIKE ?2 OR evidence_cards.body LIKE ?2 OR citations.raw LIKE ?2)"
+    };
+    let sql = format!(
+        "{} {} {} ORDER BY sections.order_index, evidence_cards.paragraph_start LIMIT ?3",
+        select_cards_sql(),
+        side_clause,
+        text_clause
+    );
+    let side_value = if scope == "ours" || scope == "opponent" { scope } else { "1" };
+    let pattern = format!("%{}%", text);
+    let mut statement = connection.prepare(&sql)?;
+    let rows = statement.query_map((side_value, pattern.as_str(), limit as i64), |row| {
+        card_from_row(connection, row, 0.0, false)
     })?;
     rows.collect()
 }
@@ -301,6 +498,7 @@ fn card_from_row(
         highlights: highlights_for_card(connection, &id)?,
         score: final_score,
         document_name: row.get("document_name")?,
+        side: row.get("side")?,
         diagnostics: diagnostics.then(|| SearchDiagnostics {
             retrieval: vec!["sqlite_fts".into(), "like_fallback_when_needed".into()],
             concepts: vec![],
@@ -336,6 +534,7 @@ SELECT
     citations.raw AS citation,
     citations.source_url,
     evidence_cards.source_path,
+    evidence_cards.side,
     substr(evidence_cards.body, 1, 1200) AS body_preview,
     evidence_cards.body
 FROM evidence_cards
@@ -400,6 +599,8 @@ pub fn run() {
             load_workspace,
             save_workspace,
             search_evidence,
+            import_round_source,
+            list_round_evidence,
             copy_evidence,
             open_external_url,
             reveal_path
