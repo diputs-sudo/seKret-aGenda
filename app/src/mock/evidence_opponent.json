@@ -1,0 +1,28 @@
+[
+  {
+    "id": "opp_102",
+    "side": "opponent",
+    "section": "Addiction DA",
+    "tag": "AI personalization increases gambling addiction",
+    "author": "Goessmann",
+    "year": 2025,
+    "citation": "Goessmann 25",
+    "url": "https://example.com/goessmann-addiction",
+    "highlights": ["Personalized offers increase engagement", "High-risk bettors receive more targeted prompts"],
+    "body": "AI-driven personalization increases sportsbook engagement by tailoring promotions to user behavior. That targeting can intensify gambling habits, especially for users already showing risky patterns.",
+    "metadata": { "argument": "Addiction", "relationship": "CLAIM" }
+  },
+  {
+    "id": "opp_211",
+    "side": "opponent",
+    "section": "States CP",
+    "tag": "State-level rehab funding solves addiction harms",
+    "author": "Blair",
+    "year": 2024,
+    "citation": "Blair 24",
+    "url": null,
+    "highlights": ["Treatment programs can respond locally", "States can tailor funding to need"],
+    "body": "State governments are well positioned to fund treatment programs for gambling addiction and tailor services to local needs. Local administration is more flexible than a national ban.",
+    "metadata": { "argument": "States", "relationship": "CLAIM" }
+  }
+]

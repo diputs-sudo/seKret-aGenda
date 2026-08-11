@@ -1,0 +1,41 @@
+[
+  {
+    "id": "card_1938",
+    "side": "ours",
+    "section": "AT: Addiction",
+    "tag": "AI regulation prevents manipulation",
+    "author": "Tonko",
+    "year": 2025,
+    "citation": "Tonko 25",
+    "url": "https://example.com/tonko-ai-standards",
+    "highlights": ["Prohibits AI tracking of individual gambling habits", "Federal standards stop personalized inducements"],
+    "body": "Federal standards prohibit sportsbooks from using individualized AI tracking to identify and exploit risky gambling habits. A national rule prevents companies from forum-shopping weaker state regimes and creates a clear enforcement hook before addictive behavior escalates.",
+    "metadata": { "argument": "Mitigation", "relationship": "MITIGATION" }
+  },
+  {
+    "id": "card_2841",
+    "side": "ours",
+    "section": "AT: Addiction",
+    "tag": "Unregulated markets cause operators to use AI for revenue",
+    "author": "Pampus",
+    "year": 2025,
+    "citation": "Pampus 25",
+    "url": "https://example.com/pampus-gambling-ai",
+    "highlights": ["AI grows sportsbook revenue", "Operators optimize timing and promotions around vulnerable users"],
+    "body": "Artificial intelligence can be used by online sports betting operators to grow revenue by targeting user behavior, personalizing promotions, and optimizing the timing of offers around risky gambling patterns. Regulation is key because the profit incentive points toward more intensive personalization.",
+    "metadata": { "argument": "Turn", "relationship": "TURN" }
+  },
+  {
+    "id": "card_3102",
+    "side": "ours",
+    "section": "Solvency",
+    "tag": "Uniform rules are stronger than state-by-state enforcement",
+    "author": "Fisher",
+    "year": 2025,
+    "citation": "Fisher 25",
+    "url": null,
+    "highlights": ["Fragmented enforcement misses real-time targeting", "Prevention must happen before losses escalate"],
+    "body": "State treatment funding is necessary but insufficient because sportsbook systems can detect vulnerability and increase engagement before users ever reach treatment programs. Prevention depends on constraining personalization at the platform level.",
+    "metadata": { "argument": "Solvency", "relationship": "SUPPORT" }
+  }
+]
