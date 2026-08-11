@@ -15,10 +15,13 @@ fn build_hybrid_backend() {
         backend_dir.join("query_intent.cpp"),
         backend_dir.join("sqlite_store.cpp"),
         backend_dir.join("ollama_embedder.cpp"),
+        backend_dir.join("vector_store.cpp"),
         backend_dir.join("fusion.cpp"),
         backend_dir.join("candidate_assessment.cpp"),
         backend_dir.join("reranker.cpp"),
         backend_dir.join("argument_builder.cpp"),
+        backend_dir.join("format_parser.cpp"),
+        backend_dir.join("round_import.cpp"),
     ];
 
     for source in &sources {
