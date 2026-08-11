@@ -218,7 +218,12 @@ class HybridRetrievalEngine:
                 continue
             merged = dict(row)
             for key, value in card.items():
-                if key == "highlights" or _is_missing(merged.get(key)):
+                if key == "metadata":
+                    merged[key] = {
+                        **(merged.get(key) if isinstance(merged.get(key), dict) else {}),
+                        **(value if isinstance(value, dict) else {}),
+                    }
+                elif key == "highlights" or _is_missing(merged.get(key)):
                     merged[key] = value
             expanded.append(merged)
         return expanded
