@@ -6,9 +6,10 @@ Tauri desktop workspace for the seKret aGenda prototype.
 
 - Tauri 2 for native macOS and Windows packaging
 - HTML/CSS/JavaScript for the interface
-- Rust for desktop commands, SQLite access, settings persistence, platform actions, and clipboard integration
+- Rust for desktop commands, settings persistence, platform actions, clipboard integration, and C++ hybrid retrieval bridging
+- C++ for native hybrid retrieval orchestration, SQLite evidence retrieval, reranking, argument selection, and native vector-cache search
 - SQLite for local evidence/card storage
-- Python worker process reserved for future AI/ML sidecar work
+- Python scripts for document parsing, data/index build steps, and prototype comparison tooling
 
 ## Architecture Direction
 
@@ -24,7 +25,10 @@ Current source layout:
 src/                  HTML/CSS/JS frontend
 src/styles/           theme tokens and shell styling
 src-tauri/            Rust/Tauri desktop backend
-src-tauri/src/lib.rs  commands, SQLite bridge, settings/workspace persistence
+src-tauri/src/lib.rs  commands, settings/workspace persistence
+src-tauri/src/hybrid.rs
+                      Rust FFI bridge to the native hybrid backend
+backend/hybrid/       C++ native hybrid retrieval backend
 python/               future AI worker sidecar
 ```
 
@@ -46,7 +50,9 @@ It supports:
 - centralized settings persisted through Tauri/Rust
 - workspace tab/activity persistence
 - `Cmd+K` / `Ctrl+K` command palette
-- evidence search through the existing SQLite FTS index with fallback text search
+- native hybrid evidence search through Rust/Tauri + C++ backend
+- SQLite FTS fallback paths for exact/non-hybrid search
+- native vector-cache search when `native_card_vectors` has been built
 - evidence detail tabs
 - developer search diagnostics toggle
 - rich clipboard export through Tauri as `text/plain` and `text/html`
@@ -107,10 +113,18 @@ Override the evidence database location:
 SEKRET_DB_PATH=/path/to/sekret-agenda.sqlite3 npm run dev
 ```
 
+Build the native vector cache used by desktop hybrid search:
+
+```bash
+../run.sh build-native-vector
+```
+
+The app no longer calls the Python hybrid prototype for `search_evidence`.
+Python remains useful for parser/index build steps and parity checks.
+
 ## Next App Milestones
 
-- Install Rust/Cargo in the local dev environment and compile the Tauri shell.
-- Wire the existing Python hybrid retrieval engine behind `search_evidence`.
+- Add native vector-cache build progress/status to the app.
 - Add DOCX import through Tauri commands and the existing parser pipeline.
 - Split frontend modules by shell/views/state once the product flow stabilizes.
 - Add app-level tests for Rust commands and frontend state reducers.
