@@ -107,6 +107,7 @@ class DebateQuery:
     topics: list[str] = field(default_factory=list)
     mechanisms: list[str] = field(default_factory=list)
     control_language: list[str] = field(default_factory=list)
+    claim_structure: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -118,6 +119,7 @@ class DebateQuery:
             "topics": self.topics,
             "mechanisms": self.mechanisms,
             "control_language": self.control_language,
+            "claim_structure": self.claim_structure,
         }
 
 
@@ -127,9 +129,11 @@ class SideCandidate:
     retrieval_score: float
     owner: Owner
     formal_side: DebateSide
+    relevance_score: float
     topic_score: float
     mechanism_score: float
     warrant_score: float
+    coverage: dict[str, Any]
     relationship: str
     relationship_confidence: float
     directness: float
