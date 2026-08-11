@@ -12,7 +12,6 @@ struct RetrievedCard : EvidenceCard {
     std::string card_id;
     std::string card_name;
     std::string argument_name;
-    std::string side;
     std::string source_path;
     std::string category;
     std::string topical;
