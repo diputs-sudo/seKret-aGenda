@@ -104,6 +104,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_rows, retrieval_stats = _retrieve_hybrid_probes(
                 retrieval,
                 probes,
+                debate_query.opponent_claim or debate_query.semantic_query,
                 args.limit,
                 args.candidate_limit,
                 args.target_novel,
@@ -151,6 +152,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Opponent claim: {query.opponent_claim or ''}")
     if query.control_language:
         print(f"Control language: {', '.join(query.control_language)}")
+    if query.claim_structure:
+        _print_claim_structure(query.claim_structure)
     print()
 
     if args.debug_candidates:
@@ -206,6 +209,7 @@ def _retrieve_sqlite_probes(db_path: Path, probes, limit: int):
 def _retrieve_hybrid_probes(
     retrieval: HybridRetrievalEngine,
     probes,
+    global_query: str,
     result_limit: int,
     candidate_limit: int,
     target_novel: int,
@@ -298,13 +302,22 @@ def _retrieve_hybrid_probes(
                 "target_reached": state["target_reached"],
                 "elapsed_ms": state["elapsed_ms"],
                 "internal_timings": state["internal_timings"],
+                "bundle_timings": state["bundle_timings"],
+                "bundle_stats": state["bundle_stats"],
                 "stopped_reason": state.get("stopped_reason") or "not expanded",
             },
         )
         for state in probe_states
     ]
     candidates, probe_stats = _union_probe_rows(probe_rows)
-    return candidates, {
+    started = time.perf_counter()
+    reranked, global_rerank_timings = retrieval.rerank_candidates(
+        global_query,
+        candidates,
+        limit=None,
+    )
+    global_rerank_elapsed_ms = _elapsed_ms(started)
+    return reranked, {
         "raw_retrieval": raw_count,
         "probes_used": sum(
             1 for state in probe_states if int(state["retrieval_rounds"]) > 0
@@ -319,6 +332,10 @@ def _retrieve_hybrid_probes(
         "embedding_texts": len(unique_probe_texts),
         "embedding_batch_ms": embedding_batch_ms,
         "embedding_calls_estimate": len(unique_probe_texts),
+        "global_candidates": len(candidates),
+        "global_reranked": len(reranked),
+        "global_rerank_ms": global_rerank_elapsed_ms,
+        "global_rerank_timings": global_rerank_timings,
         "probe_stats": probe_stats,
     }
 
@@ -330,6 +347,8 @@ def _new_probe_state(probe, target_novel: int) -> dict[str, object]:
         "raw_count": 0,
         "elapsed_ms": 0.0,
         "internal_timings": {},
+        "bundle_timings": {},
+        "bundle_stats": {},
         "depth_reached": None,
         "retrieval_rounds": 0,
         "target_novel": target_novel,
@@ -351,7 +370,7 @@ def _run_hybrid_probe_round(
 ) -> None:
     probe = state["probe"]
     started = time.perf_counter()
-    trace = retrieval.debug_trace(
+    trace = retrieval.candidate_trace(
         HybridSearchRequest(
             query=probe.text,
             limit=max(result_limit, depth),
@@ -362,7 +381,8 @@ def _run_hybrid_probe_round(
     )
     elapsed_ms = _elapsed_ms(started)
     trace_timings = trace.get("timings") or {}
-    rows = trace["reranked"]
+    bundle_debug = trace.get("bundle_debug") or {}
+    rows = trace["candidates"]
     unique_keys = {_evidence_key(row) for row in rows}
     novel_keys = unique_keys - seen_evidence
     seen_evidence.update(novel_keys)
@@ -380,6 +400,17 @@ def _run_hybrid_probe_round(
         "scheduler_wrapper", 0.0
     ) + max(0.0, elapsed_ms - trace_total)
     state["internal_timings"] = internal_timings
+    bundle_timings = dict(state.get("bundle_timings") or {})
+    for key, value in (bundle_debug.get("timings") or {}).items():
+        bundle_timings[key] = bundle_timings.get(key, 0.0) + float(value or 0.0)
+    state["bundle_timings"] = bundle_timings
+    bundle_stats = dict(state.get("bundle_stats") or {})
+    for key, value in (bundle_debug.get("stats") or {}).items():
+        if isinstance(value, int | float):
+            bundle_stats[key] = bundle_stats.get(key, 0) + value
+        else:
+            bundle_stats[key] = value
+    state["bundle_stats"] = bundle_stats
     state["depth_reached"] = depth
     state["retrieval_rounds"] = int(state["retrieval_rounds"]) + 1
     state["novel_at_depth"] = len(novel_keys)
@@ -459,6 +490,8 @@ def _union_probe_rows(probe_rows):
             "target_reached": metadata.get("target_reached"),
             "elapsed_ms": metadata.get("elapsed_ms"),
             "internal_timings": metadata.get("internal_timings"),
+            "bundle_timings": metadata.get("bundle_timings"),
+            "bundle_stats": metadata.get("bundle_stats"),
             "stopped_reason": metadata.get("stopped_reason"),
         }
         for probe, _, metadata in _normalize_probe_rows(probe_rows)
@@ -552,6 +585,29 @@ def _print_probes(probes) -> None:
     print()
 
 
+def _print_claim_structure(structure: dict[str, object]) -> None:
+    print("Structured claim")
+    print("-" * 45)
+    print(f"Relation: {structure.get('relation')}")
+    print(f"Confidence: {float(structure.get('confidence') or 0):.3f}")
+    subject = structure.get("subject") or {}
+    effect = structure.get("effect") or {}
+    target_actor = structure.get("target_actor") or {}
+    target_action = structure.get("target_action") or {}
+    target_object = structure.get("target_object") or {}
+    if isinstance(subject, dict):
+        print(f"Subject: {subject.get('value') or ''}")
+    if isinstance(effect, dict):
+        print(f"Effect: {structure.get('display_effect') or effect.get('value') or ''}")
+    if isinstance(target_actor, dict):
+        print(f"Target actor: {target_actor.get('value') or ''}")
+    if isinstance(target_action, dict):
+        print(f"Target action: {target_action.get('value') or ''}")
+    if isinstance(target_object, dict):
+        print(f"Target object: {target_object.get('value') or ''}")
+    print()
+
+
 def _print_lane(title: str, candidates) -> None:
     print(title)
     print("-" * 45)
@@ -594,6 +650,7 @@ def _print_candidate_audit(engine: DebateSideEngine, intent, candidates) -> None
             f"   relationship: {candidate.relationship} "
             f"confidence={candidate.relationship_confidence:.3f}"
         )
+        print(f"   relevance: {candidate.relevance_score:.3f}")
         print(
             "   match: "
             f"directness={candidate.directness:.3f}, "
@@ -601,6 +658,35 @@ def _print_candidate_audit(engine: DebateSideEngine, intent, candidates) -> None
             f"mechanism={candidate.mechanism_score:.3f}, "
             f"warrant={candidate.warrant_score:.3f}"
         )
+        if candidate.coverage:
+            slots = candidate.coverage.get("slots") or {}
+            details = candidate.coverage.get("slot_details") or {}
+            print(
+                "   coverage: "
+                f"score={float(candidate.coverage.get('score') or 0):.3f}, "
+                f"source_quality={float(candidate.coverage.get('source_quality') or 0):.3f}, "
+                f"subject={_slot_label(slots, details, 'subject')}, "
+                f"relation={_slot_label(slots, details, 'relation')}, "
+                f"actor={_slot_label(slots, details, 'target_actor')}, "
+                f"action={_slot_label(slots, details, 'target_action')}, "
+                f"object={_slot_label(slots, details, 'target_object')}"
+            )
+            matched = _coverage_matches(details)
+            if matched:
+                print(f"   coverage matches: {matched}")
+            sources = _coverage_sources(details)
+            if sources:
+                print(f"   coverage sources: {sources}")
+            attack = candidate.coverage.get("attack_alignment") or {}
+            if attack.get("type"):
+                print(
+                    "   attack alignment: "
+                    f"{attack.get('type')} "
+                    f"{float(attack.get('score') or 0):.3f}"
+                )
+            warnings = candidate.coverage.get("warnings") or []
+            if warnings:
+                print(f"   warnings: {', '.join(str(item) for item in warnings[:3])}")
         for lane in ("our", "opponent"):
             decision = engine.lane_decision(candidate, intent, lane)
             status = "ACCEPT" if decision["accepted"] else "REJECT"
@@ -618,6 +704,62 @@ def _print_candidate_audit(engine: DebateSideEngine, intent, candidates) -> None
             ]
             print(f"   probes: {', '.join(probe_bits)}")
     print()
+
+
+def _slot_label(slots, details, key: str) -> str:
+    score = float(slots.get(key) or 0)
+    kind = ""
+    detail = details.get(key)
+    if isinstance(detail, dict):
+        kind = str(detail.get("kind") or "")
+    return f"{score:.3f}" + (f"/{kind}" if kind else "")
+
+
+def _coverage_matches(details) -> str:
+    parts = []
+    labels = {
+        "subject": "subject",
+        "relation": "relation",
+        "target_actor": "actor",
+        "target_action": "action",
+        "target_object": "object",
+    }
+    for key, label in labels.items():
+        detail = details.get(key)
+        if not isinstance(detail, dict):
+            continue
+        matched = detail.get("matched") or []
+        if matched:
+            parts.append(f"{label}: {', '.join(str(item) for item in matched[:2])}")
+    return "; ".join(parts[:4])
+
+
+def _coverage_sources(details) -> str:
+    parts = []
+    labels = {
+        "subject": "subject",
+        "relation": "relation",
+        "target_actor": "actor",
+        "target_action": "action",
+        "target_object": "object",
+    }
+    for key, label in labels.items():
+        detail = details.get(key)
+        if not isinstance(detail, dict):
+            continue
+        provenance = detail.get("provenance") or []
+        if not provenance:
+            continue
+        item = provenance[0]
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or "?")
+        matched = str(item.get("matched") or item.get("matched_term") or "?")
+        snippet = str(item.get("snippet") or "")
+        if len(snippet) > 70:
+            snippet = snippet[:69].rstrip() + "..."
+        parts.append(f"{label}[{source}: {matched} in \"{snippet}\"]")
+    return "; ".join(parts[:4])
 
 
 def _print_probe_contribution(engine: DebateSideEngine, intent, retrieval_stats, assessed) -> None:
@@ -671,6 +813,14 @@ def _print_probe_contribution(engine: DebateSideEngine, intent, retrieval_stats,
                 print("  internal timing:")
                 for key, value in row["internal_timings"].items():
                     print(f"    {key}: {value:.1f} ms")
+            if row.get("bundle_timings"):
+                print("  bundle timing:")
+                for key, value in row["bundle_timings"].items():
+                    print(f"    {key}: {value:.1f} ms")
+            if row.get("bundle_stats"):
+                print("  bundle counts:")
+                for key, value in row["bundle_stats"].items():
+                    print(f"    {key}: {value}")
         print(f"  our candidates added:   {row['our_candidates_added']}")
         print(f"  accepted answers added: {row['accepted_answers_added']}")
     print()
@@ -683,6 +833,9 @@ def _print_funnel(engine: DebateSideEngine, intent, retrieval_stats, assessed, s
     print(f"Raw probe hits:          {retrieval_stats.get('raw_retrieval', 0)}")
     print(f"Probes used:             {retrieval_stats.get('probes_used', 0)}")
     print(f"Probes skipped:          {retrieval_stats.get('probes_skipped', 0)}")
+    if "global_candidates" in retrieval_stats:
+        print(f"Global candidates:       {retrieval_stats.get('global_candidates', 0)}")
+        print(f"Global reranked:         {retrieval_stats.get('global_reranked', 0)}")
     print(f"Unique card instances:   {len(assessed)}")
     print(f"Unique evidence:         {len(unique_evidence)}")
     print(f"Relationship assessed:   {len(unique_evidence)}")
@@ -750,6 +903,12 @@ def _print_timing(timings, retrieval_stats, assessed) -> None:
             if elapsed is None:
                 continue
             print(f"  {row['kind']}: {elapsed:.1f} ms")
+
+    if retrieval_stats.get("global_rerank_timings"):
+        print()
+        print("global candidate processing:")
+        for key, value in retrieval_stats["global_rerank_timings"].items():
+            print(f"  {key}: {value:.1f} ms")
 
     print()
     print("MODEL CALLS")
