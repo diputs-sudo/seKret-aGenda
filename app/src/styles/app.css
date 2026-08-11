@@ -536,6 +536,27 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
+.source-paths {
+  display: grid;
+  gap: 8px;
+}
+
+.path-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.path-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
 .file-button {
   display: inline-flex;
   min-height: 34px;
