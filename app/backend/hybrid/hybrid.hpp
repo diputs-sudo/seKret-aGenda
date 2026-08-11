@@ -40,6 +40,7 @@ struct EvidenceCard {
 
 struct HybridSearchRequest {
     std::string query;
+    std::string mode = "search";
     std::size_t limit = 10;
     std::size_t vector_limit = 50;
     std::size_t lexical_limit = 50;
