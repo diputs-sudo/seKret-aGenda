@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from backend.rag.relevance import _terms
 
+from .claims import ClaimRelation, StructuredClaim, parse_structured_claim
 from .model import DebateIntent, DebateQuery
 
 
@@ -52,6 +53,7 @@ OPPOSITE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
 def build_retrieval_probes(query: DebateQuery) -> list[RetrievalProbe]:
     """Build broad candidate-generation probes without using an LLM."""
     claim = query.opponent_claim or query.semantic_query
+    structured_claim = parse_structured_claim(claim)
     probes = [
         RetrievalProbe(
             kind="original",
@@ -85,7 +87,7 @@ def build_retrieval_probes(query: DebateQuery) -> list[RetrievalProbe]:
         )
 
     if query.intent in {DebateIntent.ANSWER, DebateIntent.TURN, DebateIntent.INDICT}:
-        probes.extend(_answer_side_probes(parts, claim))
+        probes.extend(_answer_side_probes(parts, claim, structured_claim))
 
     return _dedupe_probes(probes)
 
@@ -146,7 +148,132 @@ def _counterclaim(text: str) -> str:
     return f"not {text}"
 
 
-def _answer_side_probes(parts: ClaimParts, claim: str) -> list[RetrievalProbe]:
+def _answer_side_probes(
+    parts: ClaimParts,
+    claim: str,
+    structured_claim: StructuredClaim,
+) -> list[RetrievalProbe]:
+    if structured_claim.has_structure:
+        return _structured_answer_side_probes(structured_claim)
+    return _legacy_answer_side_probes(parts, claim)
+
+
+def _structured_answer_side_probes(claim: StructuredClaim) -> list[RetrievalProbe]:
+    if claim.relation == ClaimRelation.PREVENTS:
+        return _prevents_answer_side_probes(claim)
+    if claim.relation in {ClaimRelation.CAUSES, ClaimRelation.INCREASES, ClaimRelation.ENABLES}:
+        return _causes_answer_side_probes(claim)
+    if claim.relation in {ClaimRelation.UNDERMINES, ClaimRelation.DECREASES}:
+        return _undermines_answer_side_probes(claim)
+    return _generic_structured_answer_side_probes(claim)
+
+
+def _prevents_answer_side_probes(claim: StructuredClaim) -> list[RetrievalProbe]:
+    subject = _congressionalize(claim.subject.value)
+    actor = claim.target_actor.value
+    action = claim.target_action.value
+    obj = claim.target_object.value
+    effect = claim.actor_action_object
+    prevention_effect = claim.effect.value or effect
+    actor_possessive = _possessive(actor)
+    return [
+        RetrievalProbe(
+            kind="denial",
+            text=f"{subject} does not prevent {prevention_effect}",
+            purpose="logical denial of the prevention claim",
+            channel="semantic",
+        ),
+        RetrievalProbe(
+            kind="turn",
+            text=f"{subject} increases or enables {effect}",
+            purpose="cards that say the prevention claim is backwards",
+            channel="semantic",
+        ),
+        RetrievalProbe(
+            kind="circumvention",
+            text=f"{actor} can {action} {obj} despite {subject}",
+            purpose="cards about bypassing the alleged constraint",
+            channel="semantic",
+        ),
+        RetrievalProbe(
+            kind="no_link",
+            text=f"{subject} does not meaningfully constrain {actor_possessive} ability to {action} {obj}",
+            purpose="cards that sever the claimed prevention mechanism",
+            channel="semantic",
+        ),
+        RetrievalProbe(
+            kind="non_unique",
+            text=f"{actor} is already constrained from {_gerund(claim.target_action.value)} {obj} independently of {subject}",
+            purpose="cards that say the claimed restraint exists without the plan",
+            channel="semantic",
+        ),
+        RetrievalProbe(
+            kind="alt_cause",
+            text=f"other institutional or strategic constraints determine {actor_possessive} ability to {action} {obj} rather than {subject}",
+            purpose="cards that identify an alternative mechanism",
+            channel="semantic",
+        ),
+        RetrievalProbe(
+            kind="mitigation",
+            text=f"{subject} only partially reduces {actor_possessive} ability to {action} {obj}",
+            purpose="cards that mitigate the claimed restraint",
+            channel="semantic",
+        ),
+        RetrievalProbe(
+            kind="indict",
+            text=f"claims that {subject} restrains presidential {obj} overstate Congress's ability to constrain presidential action",
+            purpose="cards that indict the warrant or evidence",
+            channel="semantic",
+        ),
+        RetrievalProbe(
+            kind="empirical_denial",
+            text=f"congressional authorization or oversight has failed to prevent presidential military escalation",
+            purpose="empirical cards against congressional restraint",
+            channel="semantic",
+        ),
+    ]
+
+
+def _causes_answer_side_probes(claim: StructuredClaim) -> list[RetrievalProbe]:
+    subject = claim.subject.value
+    effect = claim.actor_action_object
+    return [
+        RetrievalProbe("denial", f"{subject} does not cause {effect}", "logical denial of the causal claim", "semantic"),
+        RetrievalProbe("turn", f"{subject} reduces or prevents {effect}", "cards that reverse the claimed causal direction", "semantic"),
+        RetrievalProbe("alt_cause", f"other causes produce {effect} rather than {subject}", "cards that identify an alternative cause", "semantic"),
+        RetrievalProbe("non_unique", f"{effect} already occurs independently of {subject}", "cards that say the impact is non-unique", "semantic"),
+        RetrievalProbe("mitigation", f"{subject} has only a small effect on {effect}", "cards that minimize the causal link", "semantic"),
+        RetrievalProbe("indict", f"claims that {subject} causes {effect} lack evidence and overstate the causal relationship", "cards that indict the warrant", "semantic"),
+    ]
+
+
+def _undermines_answer_side_probes(claim: StructuredClaim) -> list[RetrievalProbe]:
+    subject = claim.subject.value
+    effect = claim.actor_action_object
+    return [
+        RetrievalProbe("denial", f"{subject} does not undermine {effect}", "logical denial of the claim", "semantic"),
+        RetrievalProbe("turn", f"{subject} protects or strengthens {effect}", "cards that reverse the claimed harm", "semantic"),
+        RetrievalProbe("no_link", f"{subject} does not determine {effect}", "cards that sever the claimed link", "semantic"),
+        RetrievalProbe("alt_cause", f"other factors undermine {effect} rather than {subject}", "cards that identify an alternative cause", "semantic"),
+        RetrievalProbe("mitigation", f"{subject} only partially affects {effect}", "cards that mitigate the link", "semantic"),
+        RetrievalProbe("indict", f"claims that {subject} undermines {effect} lack evidence and overstate the causal relationship", "cards that indict the warrant", "semantic"),
+    ]
+
+
+def _generic_structured_answer_side_probes(claim: StructuredClaim) -> list[RetrievalProbe]:
+    subject = claim.subject.value
+    effect = claim.actor_action_object or claim.effect.value
+    relation = claim.relation_text or "causes"
+    return [
+        RetrievalProbe("denial", f"{subject} does not {relation} {effect}", "logical denial of the claim", "semantic"),
+        RetrievalProbe("no_link", f"{subject} does not determine {effect}", "cards that sever the claimed link", "semantic"),
+        RetrievalProbe("alt_cause", f"other factors determine {effect} rather than {subject}", "cards that identify an alternative cause", "semantic"),
+        RetrievalProbe("mitigation", f"{subject} only partially affects {effect}", "cards that mitigate the link", "semantic"),
+        RetrievalProbe("indict", f"claims about {subject} and {effect} lack evidence and overstate the relationship", "cards that indict the warrant", "semantic"),
+    ]
+
+
+def _legacy_answer_side_probes(parts: ClaimParts, claim: str) -> list[RetrievalProbe]:
     subject = parts.subject
     outcome = parts.outcome
     counterclaim = _counterclaim(claim)
@@ -188,6 +315,29 @@ def _answer_side_probes(parts: ClaimParts, claim: str) -> list[RetrievalProbe]:
             channel="semantic",
         ),
     ]
+
+
+def _congressionalize(text: str) -> str:
+    lowered = text.lower()
+    if "congress" in lowered and "congressional" not in lowered:
+        return re.sub(r"\bCongress\b", "Congressional", text, flags=re.IGNORECASE)
+    return text
+
+
+def _possessive(actor: str) -> str:
+    if not actor:
+        return "their"
+    if actor.lower().endswith("s"):
+        return f"{actor}'"
+    return f"{actor}'s"
+
+
+def _gerund(action: str) -> str:
+    if not action:
+        return ""
+    if action.endswith("e"):
+        return action[:-1] + "ing"
+    return action + "ing"
 
 
 def _dedupe_probes(probes: list[RetrievalProbe]) -> list[RetrievalProbe]:
