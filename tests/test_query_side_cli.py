@@ -15,7 +15,7 @@ class FakeHybridRetrieval:
         self.calls = []
         self.embedder = FakeBatchEmbedder()
 
-    def debug_trace(self, request):
+    def candidate_trace(self, request):
         self.calls.append((request.query, request.vector_limit))
         rows_by_query = {
             "productive": [
@@ -41,13 +41,26 @@ class FakeHybridRetrieval:
         }
         rows = rows_by_query[request.query]
         return {
-            "reranked": rows,
+            "candidates": rows,
             "source_results": {"fake": rows},
             "timings": {
                 "query_embedding": 0.0,
                 "fast_vector": 1.0,
                 "deep_vector": 1.0,
             },
+        }
+
+    def rerank_candidates(self, query, rows, limit=None):
+        del query
+        selected = rows[:limit] if limit is not None else rows
+        return selected, {
+            "parse_intent": 0.0,
+            "sqlite_hydration": 0.0,
+            "filter": 0.0,
+            "rerank": 0.0,
+            "total": 0.0,
+            "accounted": 0.0,
+            "unaccounted": 0.0,
         }
 
 
@@ -113,6 +126,7 @@ def test_hybrid_probe_scheduler_stops_redundant_probe_after_first_round():
     _, stats = _retrieve_hybrid_probes(
         retrieval,
         probes,
+        "productive",
         result_limit=5,
         candidate_limit=10,
         target_novel=3,
@@ -139,6 +153,7 @@ def test_hybrid_probe_scheduler_skips_after_global_pool_saturation():
     _, stats = _retrieve_hybrid_probes(
         retrieval,
         probes,
+        "productive",
         result_limit=5,
         candidate_limit=10,
         target_novel=3,
