@@ -25,7 +25,7 @@ def test_mechanism_parser_keeps_distinct_phrases_without_static_aliases():
     assert mechanism_match(query, government_card) < 0.3
 
 
-def test_mechanism_normalizes_behavioral_optimization_language():
+def test_mechanism_stays_topic_agnostic_without_static_aliases():
     query = parse_mechanism(
         "How do sportsbooks use machine learning to maximize bettor engagement?"
     )
@@ -34,9 +34,10 @@ def test_mechanism_normalizes_behavioral_optimization_language():
     )
     unrelated = parse_mechanism("Bitcoin transactions settle on a public ledger.")
 
-    assert "artificial_intelligence" in query.object_groups
-    assert "artificial_intelligence" in card.object_groups
-    assert "wagering" in query.object_groups
-    assert "wagering" in card.object_groups
-    assert "behavioral_tracking" in card.object_groups
-    assert mechanism_match(query, card) > mechanism_match(query, unrelated)
+    assert "machine_learning" in query.object_groups
+    assert "ai" in card.object_groups
+    assert "sportsbook" in query.object_groups
+    assert "gambling" in card.object_groups
+    assert "artificial_intelligence" not in query.object_groups
+    assert "wagering" not in card.object_groups
+    assert mechanism_match(query, card) <= mechanism_match(query, unrelated)
