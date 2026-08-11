@@ -25,6 +25,8 @@ Commands:
   hybrid <query>            Hybrid search through fast/deep vectors + SQLite
   hybrid --concept-debug <query>
                             Hybrid search with concept diagnostics
+  format-preview <input> <grammar>
+                            Preview evidence DSL parsing
   evals                     Run retrieval evals
   cli                       Start interactive CLI
   api                       Start FastAPI backend
@@ -41,6 +43,7 @@ Examples:
   ./run.sh vector "automation escalation"
   ./run.sh hybrid "AI sports betting"
   ./run.sh hybrid --concept-debug "Opponent says AI escalates because of automation."
+  ./run.sh format-preview data/opponent.txt docs/opponent-format.sa
   ./run.sh cli
 EOF
 }
@@ -128,6 +131,14 @@ case "$command" in
     fi
 
     "${cmd[@]}"
+    ;;
+
+  format-preview)
+    if [[ $# -lt 2 ]]; then
+      echo "Usage: ./run.sh format-preview <input.txt> <grammar.sa> [--json] [--limit N]"
+      exit 1
+    fi
+    python3 scripts/format_preview.py "$@"
     ;;
 
   evals)
