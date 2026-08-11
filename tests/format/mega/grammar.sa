@@ -1,0 +1,12 @@
+# Mega DSL test: sections, defaults, alternatives, escaped literals, ignored metadata, fuzzy
+@defaults {
+owner: opponent
+side: unknown
+packet: mega-test
+}
+
+=== [section] ===
+-- [card] -- [author] | Card [card]: [author] | -- [card] \| [school] \| [author]~0.60
+[link:url]?
+Meta: [_]?
+[content]+

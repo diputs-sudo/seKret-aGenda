@@ -1,0 +1,90 @@
+{
+  "summary": {
+    "detected_cards": 5,
+    "high_confidence": 4,
+    "warnings": 1,
+    "failed": 0,
+    "fields": {
+      "author": 5,
+      "card": 5,
+      "content": 5,
+      "link": 2,
+      "owner": 5,
+      "packet": 5,
+      "school": 1,
+      "section": 5,
+      "side": 5
+    }
+  },
+  "cards": [
+    {
+      "fields": {
+        "owner": "opponent",
+        "side": "unknown",
+        "packet": "mega-test",
+        "section": "Opponent Backfile: AI Sports Betting",
+        "card": "1",
+        "author": "Smith 25",
+        "link": "https://example.com/smith-ai-betting",
+        "content": "AI allows sportsbooks to personalize offers based on user behavior.\n\nMachine learning models track betting habits and adjust promotions."
+      },
+      "overall_confidence": 0.98
+    },
+    {
+      "fields": {
+        "owner": "opponent",
+        "side": "unknown",
+        "packet": "mega-test",
+        "section": "Opponent Backfile: AI Sports Betting",
+        "card": "2",
+        "author": "Jones 24",
+        "content": "Federal regulation remains fragmented across states.\n\nDifferent state rules make compliance harder for betting platforms."
+      },
+      "overall_confidence": 0.975
+    },
+    {
+      "fields": {
+        "owner": "opponent",
+        "side": "unknown",
+        "packet": "mega-test",
+        "section": "Opponent Backfile: AI Sports Betting",
+        "card": "3",
+        "author": "Wang 26",
+        "link": "https://example.com/wang-federal-standards",
+        "content": "Federal standards create a uniform baseline for online gambling regulation.\n\nThis reduces confusion and makes enforcement easier."
+      },
+      "overall_confidence": 0.82
+    },
+    {
+      "fields": {
+        "owner": "opponent",
+        "side": "unknown",
+        "packet": "mega-test",
+        "section": "Opponent Backfile: AI Sports Betting",
+        "card": "4",
+        "author": "Lee 23",
+        "school": "Bronx Science",
+        "content": "AI tools can target users with individualized incentives.\n\nThis increases retention by matching offers to bettor behavior."
+      },
+      "overall_confidence": 0.98
+    },
+    {
+      "fields": {
+        "owner": "opponent",
+        "side": "unknown",
+        "packet": "mega-test",
+        "section": "Opponent Backfile: AI Sports Betting",
+        "card": "5",
+        "author": "Patel 22",
+        "content": "No URL on this card on purpose.\n\nConsumer protection rules can reduce black market betting."
+      },
+      "overall_confidence": 0.975
+    }
+  ],
+  "diagnostic_codes": [
+    "SA-PARSE-001",
+    "SA-PARSE-002",
+    "SA-PARSE-001",
+    "SA-PARSE-001"
+  ]
+}
