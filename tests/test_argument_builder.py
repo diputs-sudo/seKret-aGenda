@@ -47,7 +47,7 @@ def test_argument_builder_chooses_main_claim_from_best_cluster():
     ]
 
     bundle = ArgumentBuilder().build(
-        "How do platforms use machine learning to maximize engagement?",
+        "AI user habits engagement",
         cards,
         limit=3,
     )
