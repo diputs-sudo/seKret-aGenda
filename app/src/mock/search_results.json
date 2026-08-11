@@ -1,0 +1,20 @@
+[
+  {
+    "cardId": "card_2841",
+    "score": 0.92,
+    "relationship": "TURN",
+    "explanation": "Directly reverses the claim by arguing unregulated incentives cause the harmful AI personalization."
+  },
+  {
+    "cardId": "card_1938",
+    "score": 0.88,
+    "relationship": "MITIGATION",
+    "explanation": "Shows federal standards reduce the AI targeting mechanism the opponent identifies."
+  },
+  {
+    "cardId": "card_3102",
+    "score": 0.81,
+    "relationship": "NO LINK",
+    "explanation": "Explains why treatment funding does not address platform-level personalization before harm escalates."
+  }
+]

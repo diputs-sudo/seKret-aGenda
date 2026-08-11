@@ -1,0 +1,16 @@
+{
+  "id": "round_mock_1",
+  "name": "Harvard Tournament Round",
+  "status": "empty",
+  "activeView": "setup",
+  "sources": [],
+  "buildStages": [
+    { "id": "file_loaded", "label": "File loaded", "status": "pending", "progress": 0 },
+    { "id": "structure", "label": "Structure parsed", "status": "pending", "progress": 0 },
+    { "id": "cards", "label": "Cards extracted", "status": "pending", "progress": 0 },
+    { "id": "sqlite", "label": "SQLite index", "status": "pending", "progress": 0 },
+    { "id": "vector", "label": "Vector index", "status": "pending", "progress": 0 },
+    { "id": "relationships", "label": "Relationship analysis", "status": "pending", "progress": 0 }
+  ],
+  "flows": []
+}
