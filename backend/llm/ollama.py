@@ -23,13 +23,15 @@ class OllamaLLM(LLM):
         self.timeout_seconds = timeout_seconds
 
     def generate(self, prompt: str) -> str:
-        payload = json.dumps(
-            {
-                "model": self.model,
-                "prompt": prompt,
-                "stream": False,
-            }
-        ).encode("utf-8")
+        request_payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+        }
+        options = _ollama_options()
+        if options:
+            request_payload["options"] = options
+        payload = json.dumps(request_payload).encode("utf-8")
         request = urllib.request.Request(
             f"{self.base_url}/api/generate",
             data=payload,
@@ -53,13 +55,15 @@ class OllamaLLM(LLM):
         return text.strip()
 
     def stream(self, prompt: str) -> Iterator[str]:
-        payload = json.dumps(
-            {
-                "model": self.model,
-                "prompt": prompt,
-                "stream": True,
-            }
-        ).encode("utf-8")
+        request_payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": True,
+        }
+        options = _ollama_options()
+        if options:
+            request_payload["options"] = options
+        payload = json.dumps(request_payload).encode("utf-8")
         request = urllib.request.Request(
             f"{self.base_url}/api/generate",
             data=payload,
@@ -90,3 +94,20 @@ class OllamaLLM(LLM):
             raise LLMError(
                 f"Could not reach Ollama at {self.base_url}. Is Ollama running?"
             ) from exc
+
+
+def _ollama_options() -> dict[str, int]:
+    options = {}
+    num_gpu = os.environ.get("SEKRET_OLLAMA_NUM_GPU") or os.environ.get("OLLAMA_NUM_GPU")
+    if num_gpu:
+        try:
+            options["num_gpu"] = int(num_gpu)
+        except ValueError:
+            pass
+    main_gpu = os.environ.get("SEKRET_OLLAMA_MAIN_GPU")
+    if main_gpu:
+        try:
+            options["main_gpu"] = int(main_gpu)
+        except ValueError:
+            pass
+    return options
