@@ -1,0 +1,62 @@
+[
+  {
+    "claim": "Trump nuclear posture deletes diplomacy",
+    "card": "Trump's nuclear posture deletes diplomacy and guarantees miscalculated and accidental escalation.",
+    "expected": "SUPPORTS"
+  },
+  {
+    "claim": "Trump nuclear posture deletes diplomacy",
+    "card": "Nuclear deterrence strengthens bargaining leverage and encourages diplomatic settlement.",
+    "expected": "CONTRADICTS"
+  },
+  {
+    "claim": "AI sports betting uniquely increases addiction",
+    "card": "AI sports betting already constitutes a multi-billion-dollar market, and addiction harms exist today.",
+    "expected": "NON_UNIQUE"
+  },
+  {
+    "claim": "AI personalization increases betting addiction",
+    "card": "Federal rules prohibit individualized promotions and reduce targeting of vulnerable bettors.",
+    "expected": "CONTRADICTS"
+  },
+  {
+    "claim": "Federal regulation solves black market betting",
+    "card": "Federal enforcement is underfunded, overstates its capacity, and fails to block illegal offshore books.",
+    "expected": "INDICTS"
+  },
+  {
+    "claim": "Ceasefire reduces escalation",
+    "card": "The ceasefire guarantees escalation with a litany of new actors.",
+    "expected": "CONTRADICTS"
+  },
+  {
+    "claim": "AI betting increases revenue",
+    "card": "Operators use AI because it grows sportsbook revenue and improves bettor retention.",
+    "expected": "SUPPORTS"
+  },
+  {
+    "claim": "AI betting increases addiction",
+    "card": "State tax revenue from sports betting has increased since legalization.",
+    "expected": "BACKGROUND"
+  },
+  {
+    "claim": "Quantum computers break encryption",
+    "card": "Kantian moral philosophy rejects treating persons as mere means.",
+    "expected": "IRRELEVANT"
+  },
+  {
+    "claim": "AI automation escalates war",
+    "card": "AI lowers confidence under uncertainty and reduces unintended escalation.",
+    "expected": "CONTRADICTS"
+  },
+  {
+    "claim": "AI automation escalates war",
+    "card": "Human control over military AI decision-making limits automation mistakes.",
+    "expected": "MITIGATES"
+  },
+  {
+    "claim": "Federal standards solve fragmented gambling regulation",
+    "card": "State rules vary across fifty states, while a federal baseline creates uniformity.",
+    "expected": "SUPPORTS"
+  }
+]
