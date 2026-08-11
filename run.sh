@@ -7,6 +7,9 @@ cd "$ROOT"
 DOCX_PATH="${DOCX_PATH:-data/Training Data.docx}"
 DB_PATH="${DB_PATH:-var/sekret-agenda.sqlite3}"
 CHROMA_PATH="${CHROMA_PATH:-var/chroma}"
+OUR_SIDE="${OUR_SIDE:-unknown}"
+OPPONENT_SIDE="${OPPONENT_SIDE:-unknown}"
+RESOLUTION="${RESOLUTION:-}"
 
 usage() {
   cat <<EOF
@@ -18,6 +21,8 @@ Usage:
 Commands:
   setup-ollama              Pull local models used by the app
   build-db                  Build SQLite from DOCX
+  build-sides --us <docx> --opponent <docx>
+                            Build SQLite from our/opponent DOCX files
   build-vector              Build Chroma vector index from SQLite
   rebuild                   Build SQLite, then rebuild Chroma
   search <query>            Keyword search through SQLite
@@ -25,6 +30,8 @@ Commands:
   hybrid <query>            Hybrid search through fast/deep vectors + SQLite
   hybrid --concept-debug <query>
                             Hybrid search with concept diagnostics
+  side [--no-vector] [--debug-candidates] <query>
+                            Perspective-aware two-lane debate retrieval
   format-preview <input> <grammar>
                             Preview evidence DSL parsing
   evals                     Run retrieval evals
@@ -37,12 +44,19 @@ Environment:
   DOCX_PATH=$DOCX_PATH
   DB_PATH=$DB_PATH
   CHROMA_PATH=$CHROMA_PATH
+  OUR_SIDE=$OUR_SIDE
+  OPPONENT_SIDE=$OPPONENT_SIDE
+  RESOLUTION=$RESOLUTION
 
 Examples:
   ./run.sh rebuild
+  OUR_SIDE=negative OPPONENT_SIDE=affirmative ./run.sh build-sides --us data/ex-tech-NEG-APR.docx --opponent data/ex-tech-AFF-APR.docx
   ./run.sh vector "automation escalation"
   ./run.sh hybrid "AI sports betting"
   ./run.sh hybrid --concept-debug "Opponent says AI escalates because of automation."
+  ./run.sh side "opponent says AI sports betting increases addiction"
+  ./run.sh side --no-vector --debug-candidates "opponent says AI sports betting increases addiction"
+  OUR_SIDE=negative OPPONENT_SIDE=affirmative ./run.sh side "opponent says AI sports betting increases addiction"
   ./run.sh format-preview data/opponent.txt docs/opponent-format.sa
   ./run.sh cli
 EOF
@@ -73,6 +87,14 @@ case "$command" in
     python3 scripts/build_sqlite_from_docx.py \
       "$DOCX_PATH" \
       --db "$DB_PATH"
+    ;;
+
+  build-sides)
+    python3 scripts/build_two_sided_db.py \
+      "$@" \
+      --db "$DB_PATH" \
+      --our-side "$OUR_SIDE" \
+      --opponent-side "$OPPONENT_SIDE"
     ;;
 
   build-vector)
@@ -131,6 +153,23 @@ case "$command" in
     fi
 
     "${cmd[@]}"
+    ;;
+
+  side)
+    side_flags=()
+    while [[ "${1:-}" == "--no-vector" || "${1:-}" == "--debug-candidates" ]]; do
+      side_flags+=("$1")
+      shift
+    done
+    require_query "$@"
+    python3 scripts/query_side.py \
+      "$*" \
+      --db "$DB_PATH" \
+      --chroma "$CHROMA_PATH" \
+      --our-side "$OUR_SIDE" \
+      --opponent-side "$OPPONENT_SIDE" \
+      --resolution "$RESOLUTION" \
+      "${side_flags[@]}"
     ;;
 
   format-preview)
