@@ -55,7 +55,7 @@ class ChromaVectorStore:
             batch = records[start : start + batch_size]
             ids = [str(record["card_id"]) for record in batch]
             documents = [str(record["embedding_text"]) for record in batch]
-            embeddings = [embedder.embed(document) for document in documents]
+            embeddings = embedder.embed_many(documents)
             metadatas = [_metadata(record, embedder.model) for record in batch]
             self.collection.upsert(
                 ids=ids,
@@ -79,6 +79,13 @@ class ChromaVectorStore:
         limit: int = 10,
     ) -> list[dict[str, Any]]:
         query_embedding = embedder.embed(query)
+        return self.search_by_embedding(query_embedding, limit)
+
+    def search_by_embedding(
+        self,
+        query_embedding: list[float],
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
         result = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=limit,
