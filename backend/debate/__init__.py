@@ -1,5 +1,6 @@
 """Perspective-aware debate retrieval primitives."""
 
+from .claims import ClaimRelation, StructuredClaim, parse_structured_claim
 from .model import (
     ClaimRelationship,
     DebateIntent,
@@ -21,6 +22,7 @@ from .side_engine import DebateSideEngine
 
 __all__ = [
     "ClaimRelationAssessment",
+    "ClaimRelation",
     "ClaimRelationship",
     "DebateIntent",
     "DebateQuery",
@@ -35,7 +37,9 @@ __all__ = [
     "SideCandidate",
     "SideSearchResult",
     "Stance",
+    "StructuredClaim",
     "build_retrieval_probes",
     "parse_debate_query",
+    "parse_structured_claim",
     "classify_claim_relationship",
 ]
