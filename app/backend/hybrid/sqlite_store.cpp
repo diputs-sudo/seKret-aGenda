@@ -206,6 +206,8 @@ RetrievedCard card_from_statement(sqlite3* db, sqlite3_stmt* statement, double s
     card.argument_name = column_text(statement, "argument_name");
     card.side = column_text(statement, "side");
     card.source_path = column_text(statement, "source_path");
+    card.category = column_text(statement, "category");
+    card.topical = column_text(statement, "topical");
     card.author = optional_column_text(statement, "author");
     card.year = optional_column_int(statement, "year");
     card.citation = column_text(statement, "citation");
@@ -238,6 +240,8 @@ SELECT
     evidence_cards.tag,
     evidence_cards.card_name,
     evidence_cards.argument_name,
+    evidence_cards.category,
+    evidence_cards.topical,
     evidence_cards.side,
     evidence_cards.source_path,
     citations.author,
@@ -290,6 +294,8 @@ SELECT
     evidence_cards.tag,
     evidence_cards.card_name,
     evidence_cards.argument_name,
+    evidence_cards.category,
+    evidence_cards.topical,
     evidence_cards.side,
     evidence_cards.source_path,
     citations.author,
