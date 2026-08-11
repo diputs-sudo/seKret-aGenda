@@ -8,6 +8,9 @@ class FakeEmbedder:
     def embed(self, text: str) -> list[float]:
         return [float(len(text)), 1.0]
 
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        return [self.embed(text) for text in texts]
+
 
 class FakeCollection:
     name = CARD_FAST_COLLECTION
