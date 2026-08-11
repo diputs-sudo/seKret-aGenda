@@ -1,18 +1,38 @@
 # Secret Agenda Desktop App
 
-Native desktop shell for the seKret aGenda prototype.
+Tauri desktop workspace for the seKret aGenda prototype.
 
 ## Stack
 
-- Qt 6 Widgets for the native desktop UI
-- C++20 for the app shell, search repository, and performance-sensitive local logic
-- SQLite through QtSql for local evidence/card storage
-- Python worker process for future AI/ML features
-- CMake for macOS `.app` and Windows `.exe` builds
+- Tauri 2 for native macOS and Windows packaging
+- HTML/CSS/JavaScript for the interface
+- Rust for desktop commands, SQLite access, settings persistence, platform actions, and clipboard integration
+- SQLite for local evidence/card storage
+- Python worker process reserved for future AI/ML sidecar work
+
+## Architecture Direction
+
+The frontend is organized around the debate workspace primitives:
+
+```text
+Workspace -> Tabs -> Panels -> Views -> Commands
+```
+
+Current source layout:
+
+```text
+src/                  HTML/CSS/JS frontend
+src/styles/           theme tokens and shell styling
+src-tauri/            Rust/Tauri desktop backend
+src-tauri/src/lib.rs  commands, SQLite bridge, settings/workspace persistence
+python/               future AI worker sidecar
+```
+
+The frontend does not issue SQLite queries directly. It invokes Tauri commands.
 
 ## Current Slice
 
-This first frontend reads the existing prototype database at:
+This frontend reads the existing prototype database at:
 
 ```bash
 var/sekret-agenda.sqlite3
@@ -20,53 +40,77 @@ var/sekret-agenda.sqlite3
 
 It supports:
 
-- opening a different SQLite database
-- searching cards through the existing FTS index
-- fallback text search when FTS returns no rows
-- card detail inspection with citation, highlights, and body preview
-- mode sidebar placeholders for Search, Explain, Draft Rebuttal, Summary, and Final Focus
-- Python worker health check
+- IDE-like shell with top bar, activity bar, sidebar, tab strip, panel area, and status bar
+- universal tabs for search, evidence, browser/research, draft, round, document, and database views
+- centralized CSS theme tokens with Dark, Natural White, and Follow System modes
+- centralized settings persisted through Tauri/Rust
+- workspace tab/activity persistence
+- `Cmd+K` / `Ctrl+K` command palette
+- evidence search through the existing SQLite FTS index with fallback text search
+- evidence detail tabs
+- developer search diagnostics toggle
+- rich clipboard export through Tauri as `text/plain` and `text/html`
+- external URL/path opening through a platform command
+
+## Browser Note
+
+The old Qt plan used Qt WebEngine/Chromium. Tauri uses the operating system WebView, so embedded browser behavior is different. For this Tauri alpha, research tabs keep URL controls and an external-browser escape hatch. We can decide later whether to use additional WebViews, external browser workflows, or a dedicated browser integration.
+
+## Requirements
+
+- Node.js and npm
+- Rust toolchain with Cargo
+- Platform prerequisites for Tauri 2
 
 ## Build
 
-Install Qt 6 and CMake, then from the repo root:
+From this `app/` directory:
 
 ```bash
-cmake -S app -B app/build -DCMAKE_BUILD_TYPE=Release
-cmake --build app/build --config Release
+npm install
+npm run dev
 ```
 
-If CMake cannot find Qt, point it at your Qt install:
+Build a macOS `.app`:
 
 ```bash
-cmake -S app -B app/build -DCMAKE_PREFIX_PATH="$HOME/Qt/6.7.0/macos"
+npm run build
 ```
 
-On macOS, the app bundle is produced as `app/build/Secret Agenda.app`.
-On Windows, the executable is produced as `app/build/Release/Secret Agenda.exe` when using a multi-config generator such as Visual Studio.
-
-## Run
+Build a Windows `.exe` installer on Windows:
 
 ```bash
-open "app/build/Secret Agenda.app"
+npm run build:windows
 ```
 
-or run the binary directly:
+Useful frontend-only check:
 
 ```bash
-"app/build/Secret Agenda.app/Contents/MacOS/Secret Agenda"
+npm run check
 ```
 
-You can override the database location:
+Run the frontend as a normal webpage without Tauri:
 
 ```bash
-SEKRET_DB_PATH=/path/to/sekret-agenda.sqlite3 "app/build/Secret Agenda.app/Contents/MacOS/Secret Agenda"
+npm run dev:frontend -- --port 1420
+```
+
+In browser-only mode, Tauri commands are mocked. Settings and workspace state
+persist to `localStorage`, search returns preview data, external links open in a
+new browser tab, and copy uses the browser clipboard API.
+
+## Environment
+
+Override the evidence database location:
+
+```bash
+SEKRET_DB_PATH=/path/to/sekret-agenda.sqlite3 npm run dev
 ```
 
 ## Next App Milestones
 
-- Replace mode placeholders with real C++ service objects.
-- Port parser and SQLite import flows into the app.
-- Call the Python worker for embeddings/reranking/generation.
-- Add packaging rules using `macdeployqt` and `windeployqt`.
-- Add app-level tests for repository queries and worker invocation.
+- Install Rust/Cargo in the local dev environment and compile the Tauri shell.
+- Wire the existing Python hybrid retrieval engine behind `search_evidence`.
+- Add DOCX import through Tauri commands and the existing parser pipeline.
+- Split frontend modules by shell/views/state once the product flow stabilizes.
+- Add app-level tests for Rust commands and frontend state reducers.
