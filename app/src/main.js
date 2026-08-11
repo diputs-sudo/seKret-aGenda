@@ -3,6 +3,10 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { mockBackend } from "./services/mockBackend.js";
 import "./styles/app.css";
 
+const DEFAULT_OPPONENT_GRAMMAR = `-- [card] -- [author]
+[link]
+[content]`;
+
 const DEFAULT_SETTINGS = {
   theme: "dark",
   density: "comfortable",
@@ -28,13 +32,14 @@ const commands = [
   { id: "browser.open", title: "Open website", keywords: "web google docs research" },
   { id: "round.start", title: "Start round", keywords: "flow opponent prep" },
   { id: "round.ask", title: "Ask round", keywords: "smart search rebuttal evidence" },
+  { id: "tools.cardSeparator", title: "Card separator", keywords: "docx split cards highlights citation jsonl" },
   { id: "settings.open", title: "Open settings", keywords: "appearance developer search ai" },
 ];
 
 const ROUND_VIEWS = [
   { id: "setup", label: "Setup", requiresReady: false },
   { id: "evidence", label: "Evidence", requiresReady: true },
-  { id: "ask", label: "Ask", requiresReady: true },
+  { id: "ask", label: "Ask", requiresReady: false },
   { id: "flow", label: "Flow", requiresReady: true },
   { id: "browser", label: "Browser", requiresReady: false },
 ];
@@ -58,6 +63,10 @@ const state = {
   commandText: "",
   settingsOpen: false,
   settingsCategory: "Appearance",
+  layout: {
+    activityWidth: 92,
+    sidebarWidth: 280,
+  },
   round: null,
   roundSourcePaths: {
     ours: "",
@@ -69,6 +78,7 @@ const state = {
     opponent: null,
     opponentGrammar: null,
   },
+  roundGrammarText: DEFAULT_OPPONENT_GRAMMAR,
   roundView: "setup",
   roundBuildTick: 0,
   roundEvidence: [],
@@ -77,12 +87,27 @@ const state = {
   roundAsk: {
     query: "",
     mode: "smart",
-    scope: "both",
+    scope: "ours",
     loading: false,
     results: [],
     generated: null,
     error: "",
   },
+  tools: {
+    activeTool: "card-separator",
+    cardSeparator: {
+      docxPath: "",
+      running: false,
+      ran: false,
+      rawText: "",
+      error: "",
+      stderr: "",
+      sourceFile: "",
+      executablePath: "",
+      cardCount: null,
+    },
+  },
+  cardSeparatorUpload: null,
 };
 
 const app = document.querySelector("#app");
@@ -91,11 +116,28 @@ const WEB_STORAGE_KEYS = {
   workspace: "secret-agenda.workspace",
 };
 
+function showStartupError(error) {
+  console.error(error);
+  if (!app) return;
+  app.innerHTML = `
+    <main class="app-shell startup-failure">
+      <section>
+        <h1>Secret Agenda could not finish loading.</h1>
+        <p>${escapeHtml(String(error?.message || error || "Unknown startup error"))}</p>
+        <button onclick="location.reload()">Reload</button>
+      </section>
+    </main>
+  `;
+}
+
 function isTauri() {
   return Boolean(window.__TAURI_INTERNALS__);
 }
 
 async function call(command, payload = {}) {
+  if (command === "run_card_separator" && !isTauri()) {
+    throw new Error("Card Separator requires the Tauri desktop backend.");
+  }
   if (!isTauri()) {
     return mockInvoke(command, payload);
   }
@@ -186,10 +228,13 @@ function saveWorkspaceSoon() {
         activeActivity: state.activeActivity,
         round: state.round,
         roundSourcePaths: state.roundSourcePaths,
+        roundGrammarText: state.roundGrammarText,
         roundView: state.roundView,
         roundEvidenceScope: state.roundEvidenceScope,
         roundEvidenceFilter: state.roundEvidenceFilter,
         roundAsk: state.roundAsk,
+        tools: state.tools,
+        layout: state.layout,
       },
     }).catch(console.error);
   }, 150);
@@ -299,6 +344,11 @@ function executeCommand(id, payload = "") {
   } else if (id === "document.import") {
     openTab("document", "Import Document", {});
     openedTab = true;
+  } else if (id === "tools.cardSeparator") {
+    state.activeActivity = "tools";
+    state.tools.activeTool = "card-separator";
+    openTab("tool", "Card Separator", { tool: "card-separator" });
+    openedTab = true;
   } else if (id === "search.evidence" || id === "search.opponent") {
     openTab("search", commandPayload ? `Search: ${commandPayload}` : "Evidence Search", { query: commandPayload });
     openedTab = true;
@@ -321,14 +371,16 @@ async function addRoundSource(side, file) {
   if (isTauri()) {
     const upload = state.roundUploads[side] || (file ? await uploadFromFile(file) : null);
     const grammarUpload = state.roundUploads.opponentGrammar;
-    const sourcePath = upload?.path || sourcePathFromFile(file) || (!upload?.text ? state.roundSourcePaths[side]?.trim() : "");
+    const stagedSourcePath = upload?.requiresPath ? "" : state.roundSourcePaths[side]?.trim();
+    const sourcePath = upload?.path || sourcePathFromFile(file) || (!upload?.text ? stagedSourcePath : "");
     const sourceText = upload?.text || "";
     if (!sourcePath && !sourceText) {
-      flashStatus("Choose or drop a source file first.");
+      flashStatus(upload?.requiresPath ? "For DOCX, drag the file into the app or paste its absolute path." : "Choose or drop a source file first.");
       return;
     }
-    if (side === "opponent" && !grammarUpload?.text && !grammarUpload?.path && !state.roundSourcePaths.opponentGrammar.trim()) {
-      flashStatus("Choose or drop the opponent .sa grammar too.");
+    const grammarText = state.roundGrammarText.trim();
+    if (side === "opponent" && !grammarUpload?.text && !grammarUpload?.path && !state.roundSourcePaths.opponentGrammar.trim() && !grammarText) {
+      flashStatus("Add the opponent .sa grammar in the editor or choose a grammar file.");
       return;
     }
     const source = await call("import_round_source", {
@@ -340,7 +392,7 @@ async function addRoundSource(side, file) {
         sourceText,
         grammarPath: side === "opponent" ? grammarUpload?.path || (!grammarUpload?.text ? state.roundSourcePaths.opponentGrammar.trim() : "") : "",
         grammarName: side === "opponent" ? grammarUpload?.name || "" : "",
-        grammarText: side === "opponent" ? grammarUpload?.text || "" : "",
+        grammarText: side === "opponent" ? grammarUpload?.text || grammarText : "",
       },
     });
     state.round = {
@@ -372,6 +424,14 @@ function sourcePathFromFile(file) {
 async function uploadFromFile(file) {
   if (!file) return null;
   const path = sourcePathFromFile(file);
+  if (!path && file.name?.toLowerCase().endsWith(".docx")) {
+    return {
+      name: file.name || "upload.docx",
+      path: "",
+      text: "",
+      requiresPath: true,
+    };
+  }
   const text = path ? "" : await file.text();
   return {
     name: file.name || "upload.txt",
@@ -401,6 +461,9 @@ async function acceptRoundFiles(side, files) {
         const upload = await uploadFromFile(item);
         state.roundUploads.opponentGrammar = upload;
         state.roundSourcePaths.opponentGrammar = upload.path || upload.name;
+        if (upload.text) {
+          state.roundGrammarText = upload.text;
+        }
       }
     } else {
       sourceFile = typeof item === "string" ? null : item;
@@ -414,7 +477,7 @@ async function acceptRoundFiles(side, files) {
   } else if (sourceFile) {
     const upload = await uploadFromFile(sourceFile);
     state.roundUploads[side] = upload;
-    state.roundSourcePaths[side] = upload.path || upload.name;
+    state.roundSourcePaths[side] = upload.path || (upload.requiresPath ? "" : upload.name);
   }
 
   if (side === "opponent" && (state.roundUploads.opponent || state.roundSourcePaths.opponent) && (state.roundUploads.opponentGrammar || state.roundSourcePaths.opponentGrammar)) {
@@ -488,19 +551,24 @@ async function buildRound() {
 }
 
 async function refreshRoundEvidence(shouldRender = true) {
-  state.roundEvidence = isTauri()
-    ? await call("list_round_evidence", {
-        query: {
-          roundId: state.round?.id || "",
+  try {
+    state.roundEvidence = isTauri()
+      ? await call("list_round_evidence", {
+          query: {
+            roundId: state.round?.id || "",
+            scope: state.roundEvidenceScope,
+            query: state.roundEvidenceFilter,
+            limit: 150,
+          },
+        })
+      : await mockBackend.listEvidence({
           scope: state.roundEvidenceScope,
           query: state.roundEvidenceFilter,
-          limit: 150,
-        },
-      })
-    : await mockBackend.listEvidence({
-        scope: state.roundEvidenceScope,
-        query: state.roundEvidenceFilter,
-      });
+        });
+  } catch (error) {
+    state.roundEvidence = [];
+    state.statusMessage = `Evidence unavailable: ${String(error)}`;
+  }
   if (shouldRender) render();
 }
 
@@ -516,33 +584,25 @@ async function runRoundAsk(queryText) {
   render();
 
   try {
-    const results = isTauri()
-      ? (await call("list_round_evidence", {
-          query: {
+    const response = isTauri()
+      ? await call("ask_round", {
+          request: {
             roundId: state.round?.id || "",
-            scope: state.roundAsk.scope,
             query: queryText,
+            scope: normalizeAskScope(state.roundAsk.scope),
+            mode: state.roundAsk.mode,
             limit: state.settings.searchResultCount,
+            generateAnswer: true,
+            includeDiagnostics: state.settings.developerSearchDiagnostics || state.roundAsk.mode === "advanced",
           },
-        })).map((card) => ({
-          card,
-          score: card.score || 0.45,
-          relationship: card.side === "opponent" ? "OPPONENT" : "EVIDENCE",
-          explanation: card.diagnostics?.retrieval?.join(", ") || "Matched from the local SQLite evidence DB.",
-        }))
-      : await mockBackend.searchRound({
+        })
+      : null;
+    const results = response?.results || await mockBackend.searchRound({
           query: queryText,
-          scope: state.roundAsk.scope,
+          scope: normalizeAskScope(state.roundAsk.scope),
           mode: state.roundAsk.mode,
         });
-    const generated = isTauri()
-      ? {
-          text: results.length
-            ? `Found ${results.length} local card${results.length === 1 ? "" : "s"} for this round query.`
-            : "No matching local round evidence found.",
-          sources: results.slice(0, 2).map((result) => result.card.id),
-        }
-      : await mockBackend.generateAnswer({
+    const generated = response?.generated || await mockBackend.generateAnswer({
           query: queryText,
           evidenceIds: results.slice(0, 2).map((result) => result.card.id),
           style: "rebuttal",
@@ -587,18 +647,112 @@ async function addGeneratedToFlow() {
   render();
 }
 
+async function runCardSeparatorPreview() {
+  const tool = state.tools.cardSeparator;
+  if (!tool.docxPath.trim()) {
+    flashStatus("Drop or choose a DOCX file first.");
+    return;
+  }
+  state.tools.cardSeparator = {
+    ...tool,
+    running: true,
+    ran: false,
+    error: "",
+    stderr: "",
+    rawText: "",
+    cardCount: null,
+  };
+  render();
+  try {
+    const response = await call("run_card_separator", {
+      request: {
+        docxPath: tool.docxPath.trim(),
+        sourceName: state.cardSeparatorUpload?.name || "",
+        docxBytes: state.cardSeparatorUpload?.bytes || null,
+      },
+    });
+    state.tools.cardSeparator = {
+      ...state.tools.cardSeparator,
+      running: false,
+      ran: true,
+      rawText: response.output || "",
+      stderr: response.stderr || "",
+      sourceFile: response.sourceFile || "",
+      executablePath: response.executablePath || "",
+      cardCount: response.cardCount ?? null,
+    };
+    flashStatus("Card Separator finished.");
+  } catch (error) {
+    state.tools.cardSeparator = {
+      ...state.tools.cardSeparator,
+      running: false,
+      ran: false,
+      rawText: "",
+      stderr: "",
+      error: String(error),
+      cardCount: null,
+    };
+    flashStatus("Card Separator failed.");
+  }
+  saveWorkspaceSoon();
+  render();
+}
+
+function copySeparatorText() {
+  const text = state.tools.cardSeparator.rawText || "";
+  navigator.clipboard?.writeText(text);
+  flashStatus("Copied separated-card text.");
+}
+
+async function acceptCardSeparatorFiles(files) {
+  const items = Array.from(files || []);
+  const docx = items.find((item) => {
+    const name = typeof item === "string" ? item : item?.name || "";
+    return name.toLowerCase().endsWith(".docx");
+  });
+  if (!docx) {
+    flashStatus("Drop a DOCX file for Card Separator.");
+    return;
+  }
+  const path = typeof docx === "string" ? docx : sourcePathFromFile(docx) || docx.name || "";
+  state.cardSeparatorUpload = typeof docx === "string" || sourcePathFromFile(docx)
+    ? null
+    : {
+        name: docx.name || "card-separator.docx",
+        bytes: Array.from(new Uint8Array(await docx.arrayBuffer())),
+      };
+  state.tools.cardSeparator = {
+    ...state.tools.cardSeparator,
+    docxPath: path,
+    running: false,
+    ran: false,
+    rawText: "",
+    error: "",
+    stderr: "",
+    cardCount: null,
+  };
+  state.activeActivity = "tools";
+  state.tools.activeTool = "card-separator";
+  flashStatus("DOCX staged for Card Separator.");
+  saveWorkspaceSoon();
+  render();
+}
+
 function findEvidenceCard(id) {
   return [...state.roundEvidence, ...state.roundAsk.results.map((result) => result.card)].find((card) => card?.id === id);
 }
 
 function render() {
   applyTheme();
+  if (!app) return;
   app.innerHTML = `
     <main class="app-shell">
       ${renderTopbar()}
-      <section class="workspace-grid">
+      <section class="workspace-grid" style="--activity-width: ${state.layout.activityWidth}px; --sidebar-width: ${state.layout.sidebarWidth}px;">
         ${renderActivityBar()}
+        <div class="resize-handle activity-resize" data-resize-target="activity" title="Resize activity bar"></div>
         ${renderSidebar()}
+        <div class="resize-handle sidebar-resize" data-resize-target="sidebar" title="Resize sidebar"></div>
         <section class="editor-area">
           ${renderTabStrip()}
           ${renderPanel()}
@@ -670,6 +824,7 @@ function renderSidebar() {
 
 function renderToolsSidebar() {
   return `
+    <button class="wide-button" data-tool="card-separator">Card Separator</button>
     <button class="wide-button" data-action="new-search">Evidence Search</button>
     <button class="wide-button" data-command="document.import">Import Document</button>
     <button class="wide-button" data-command="draft.rebuttal">Draft Rebuttal</button>
@@ -729,9 +884,64 @@ function renderPanel() {
   if (tab.type === "browser") return renderBrowserView(tab.state);
   if (tab.type === "document") return renderPlaceholder("Document Import", "Document import and preview will plug into the document model.");
   if (tab.type === "round") return renderRoundView();
+  if (tab.type === "tool") return renderToolView(tab.state);
   if (tab.type === "draft") return renderPlaceholder("Draft", "Source-grounded AI output will open here.");
   if (tab.type === "database") return renderPlaceholder("Database", "Backfiles, indexes, and import health will live here.");
   return renderSearchView(tab.state);
+}
+
+function renderToolView(tabState = {}) {
+  const tool = tabState.tool || state.tools.activeTool;
+  if (tool === "card-separator") return renderCardSeparatorTool();
+  return renderPlaceholder("Tool", "Choose a tool from the sidebar.");
+}
+
+function renderCardSeparatorTool() {
+  const tool = state.tools.cardSeparator;
+  const hasInput = Boolean(tool.docxPath.trim());
+  const hasOutput = Boolean(tool.rawText);
+  const displayName = hasInput ? basename(tool.docxPath) : "";
+  return `
+    <section class="view tool-view card-separator-view">
+      <header class="separator-drop-zone ${hasInput ? "has-file" : ""}" data-drop-card-separator>
+        <div>
+          <h1>Card Separator</h1>
+          <p>${hasInput ? escapeHtml(displayName) : "Drop a DOCX file here"}</p>
+        </div>
+        <div class="separator-input-actions">
+          <input value="${escapeAttr(tool.docxPath)}" placeholder="/absolute/path/to/cards.docx" data-card-separator-field="docxPath" />
+          <label class="file-button">
+            Browse
+            <input type="file" accept=".docx" data-card-separator-file />
+          </label>
+          <button data-action="run-card-separator" ${hasInput ? "" : "disabled"}>${tool.running ? "Separating..." : "Run Preview"}</button>
+        </div>
+      </header>
+
+      ${
+        hasOutput
+          ? `<section class="separator-output">
+              <div class="separator-output-header">
+                <div>
+                  <h2>Raw Text Preview</h2>
+                </div>
+                <div class="button-row">
+                  <button data-action="copy-separator-text">Copy Raw Text</button>
+                </div>
+              </div>
+              <pre class="raw-text-preview">${escapeHtml(tool.rawText)}</pre>
+            </section>`
+          : `<section class="separator-empty-output ${tool.error ? "has-error" : ""}">
+              <p>${tool.error ? escapeHtml(tool.error) : hasInput ? "Run preview to separate the DOCX into raw card text." : "No preview yet."}</p>
+            </section>`
+      }
+
+    </section>
+  `;
+}
+
+function basename(path) {
+  return String(path || "").split(/[\\/]/).filter(Boolean).pop() || path || "";
 }
 
 function renderRoundView() {
@@ -806,23 +1016,23 @@ function renderSourcePanel(side, title, source) {
     <article class="source-panel" data-drop-side="${side}">
       <div>
         <h2>${title}</h2>
-        <p>${source ? escapeHtml(source.filename) : side === "opponent" ? "Drop/paste TXT plus .sa grammar" : "Drop DOCX/PDF/TXT here"}</p>
+        <p>${source ? escapeHtml(source.filename) : side === "opponent" ? "Drop DOCX and edit the .sa grammar below" : "Drop DOCX/PDF/TXT here"}</p>
       </div>
       <div class="source-paths">
-        <input class="path-input" value="${escapeAttr(sourcePath)}" placeholder="/absolute/path/to/${side === "opponent" ? "opponent.txt" : "our-file.docx"}" data-source-path="${side}" />
+        <input class="path-input" value="${escapeAttr(sourcePath)}" placeholder="/absolute/path/to/${side === "opponent" ? "opponent.docx" : "our-file.docx"}" data-source-path="${side}" />
         ${
           side === "opponent"
-            ? `<input class="path-input" value="${escapeAttr(grammarPath)}" placeholder="/absolute/path/to/grammar.sa" data-grammar-path="opponent" />`
+            ? `<input class="path-input" value="${escapeAttr(grammarPath)}" placeholder="/absolute/path/to/grammar.sa, optional" data-grammar-path="opponent" />
+               ${renderGrammarEditor()}`
             : ""
         }
       </div>
       <div class="source-actions">
         <label class="file-button">
           Browse
-          <input type="file" accept="${side === "opponent" ? ".txt,.sa" : ".docx,.pdf,.txt"}" data-file-side="${side}" multiple />
+          <input type="file" accept="${side === "opponent" ? ".docx,.sa" : ".docx,.pdf,.txt"}" data-file-side="${side}" multiple />
         </label>
-        <button data-action="import-source" data-source-side="${side}">${side === "opponent" ? "Import DSL" : "Register"}</button>
-        <button data-action="mock-source" data-source-side="${side}">Use Mock</button>
+        <button data-action="import-source" data-source-side="${side}">${side === "opponent" ? "Import DOCX" : "Register"}</button>
       </div>
       ${
         source
@@ -830,9 +1040,21 @@ function renderSourcePanel(side, title, source) {
               <span>${escapeHtml(statusLabel(source.status))}</span>
               <span>${source.cardCount ? `${source.cardCount} cards` : source.diagnostics?.[0] ? escapeHtml(source.diagnostics[0]) : "Waiting to build"}</span>
             </div>`
-          : `<small>${side === "opponent" ? "Native path imports TXT with the custom .sa DSL." : "Native import for your side is registered for now."}</small>`
+          : `<small>${side === "opponent" ? "Opponent import uses DOCX plus the editable SA structure." : "Native import for your side is registered for now."}</small>`
       }
     </article>
+  `;
+}
+
+function renderGrammarEditor() {
+  return `
+    <section class="grammar-editor">
+      <label>
+        <span>SA Grammar</span>
+        <textarea spellcheck="false" data-grammar-editor>${escapeHtml(state.roundGrammarText)}</textarea>
+      </label>
+      <pre aria-hidden="true">${highlightGrammar(state.roundGrammarText)}</pre>
+    </section>
   `;
 }
 
@@ -898,17 +1120,39 @@ function renderRoundEvidenceCard(card) {
 }
 
 function renderRoundAsk() {
+  const backendLabel = isTauri() ? "Desktop backend" : "Mock preview";
+  const resultCount = state.roundAsk.loading ? "Searching" : `${state.roundAsk.results.length} result${state.roundAsk.results.length === 1 ? "" : "s"}`;
   return `
     <section class="round-ask">
+      <header class="ask-header">
+        <div>
+          <h2>Ask One Side</h2>
+          <p>Choose a side, ask the round question, and Secret Agenda returns evidence from that lane.</p>
+        </div>
+        <span>${backendLabel}</span>
+      </header>
       <form class="ask-form" data-form="round-ask">
-        <textarea name="query" placeholder="opponent says AI increases addiction...">${escapeHtml(state.roundAsk.query)}</textarea>
-        <div class="ask-controls">
-          ${segmented("ask-mode", state.roundAsk.mode, [["smart", "Smart"], ["exact", "Exact"], ["semantic", "Semantic"], ["advanced", "Advanced"]])}
-          ${segmented("ask-scope", state.roundAsk.scope, [["both", "Both"], ["ours", "Our"], ["opponent", "Opp"]])}
+        <label class="ask-question">
+          <span>Question</span>
+          <textarea name="query" placeholder="opponent says AI increases addiction...">${escapeHtml(state.roundAsk.query)}</textarea>
+        </label>
+        <div class="ask-controls-grid">
+          <div class="ask-control">
+            <span>Side</span>
+            ${segmented("ask-scope", normalizeAskScope(state.roundAsk.scope), [["ours", "Our Side"], ["opponent", "Opponent"]])}
+          </div>
+          <div class="ask-control">
+            <span>Mode</span>
+            ${segmented("ask-mode", state.roundAsk.mode, [["smart", "Smart"], ["exact", "Exact"], ["semantic", "Semantic"], ["advanced", "Advanced"]])}
+          </div>
           <button>${state.roundAsk.loading ? "Searching..." : "Search"}</button>
         </div>
       </form>
       ${state.roundAsk.error ? `<div class="warning">${escapeHtml(state.roundAsk.error)}</div>` : ""}
+      <div class="view-meta">
+        <span>${resultCount}</span>
+        <span>${normalizeAskScope(state.roundAsk.scope) === "ours" ? "Searching our evidence" : "Searching opponent evidence"}</span>
+      </div>
       <div class="ask-layout">
         <section class="ask-results">
           <h2>Best Evidence</h2>
@@ -924,15 +1168,21 @@ function renderRoundAsk() {
 }
 
 function renderAskResult(result, index) {
+  const side = result.card.side === "opponent" ? "Opponent" : "Our Side";
+  const score = Number.isFinite(result.score) ? result.score : 0;
   return `
     <article class="ask-result">
       <div class="result-head">
-        <h3>${escapeHtml(result.card.citation)}</h3>
-        <span class="score">${Math.round(result.score * 100)}%</span>
+        <h3>${escapeHtml(result.card.citation || result.card.title || "Evidence")}</h3>
+        <span class="score">${Math.round(score * 100)}%</span>
       </div>
-      <span class="relationship">${escapeHtml(result.relationship)}</span>
+      <div class="result-meta">
+        <span class="relationship">${escapeHtml(result.relationship)}</span>
+        <span>${side}</span>
+      </div>
       <p>${escapeHtml(result.card.tag)}</p>
       <small>${escapeHtml(result.explanation)}</small>
+      ${result.card.bodyPreview || result.card.body ? `<p class="ask-preview">${escapeHtml(result.card.bodyPreview || result.card.body).slice(0, 260)}</p>` : ""}
       <div class="result-actions">
         <button data-open-ask-card="${index}">Open</button>
         <button data-add-ask-flow="${index}">Add to Flow</button>
@@ -944,14 +1194,15 @@ function renderAskResult(result, index) {
 function renderGeneratedResponse(response) {
   if (state.roundAsk.loading) return `<p class="muted">Retrieving evidence and drafting a grounded response...</p>`;
   if (!response) return `<p class="muted">Generated rebuttals will always include source evidence.</p>`;
+  const sources = response.sources || [];
   return `
     <p>${escapeHtml(response.text)}</p>
     <div class="source-list">
       <strong>Evidence used</strong>
-      ${response.sources.map((id) => {
+      ${sources.map((id) => {
         const card = findEvidenceCard(id);
         return `<button data-open-card-id="${id}">${escapeHtml(card?.citation || id)}</button>`;
-      }).join("")}
+      }).join("") || `<span class="muted">No sources selected.</span>`}
     </div>
     <div class="button-row">
       <button data-action="copy-generated">Copy</button>
@@ -1240,6 +1491,14 @@ app.addEventListener("click", (event) => {
     return;
   }
 
+  const toolButton = target.closest("[data-tool]");
+  if (toolButton) {
+    state.activeActivity = "tools";
+    state.tools.activeTool = toolButton.dataset.tool;
+    openTab("tool", toolButton.dataset.tool === "card-separator" ? "Card Separator" : "Tool", { tool: toolButton.dataset.tool });
+    return;
+  }
+
   const copyResultButton = target.closest("[data-copy-result]");
   if (copyResultButton) {
     event.stopPropagation();
@@ -1294,16 +1553,9 @@ app.addEventListener("click", (event) => {
       state.roundAsk.mode = value;
       render();
     } else if (name === "ask-scope") {
-      state.roundAsk.scope = value;
+      state.roundAsk.scope = normalizeAskScope(value);
       render();
     }
-    return;
-  }
-
-  const mockSourceButton = target.closest('[data-action="mock-source"][data-source-side]');
-  if (mockSourceButton) {
-    const side = mockSourceButton.dataset.sourceSide;
-    addRoundSource(side, { name: side === "ours" ? "OUR_case.docx" : "OPP_case.docx" });
     return;
   }
 
@@ -1332,6 +1584,8 @@ app.addEventListener("click", (event) => {
   else if (action === "open-browser") openTab("browser", "Google Docs", { url: "https://docs.google.com" });
   else if (action === "import-source") addRoundSource(actionElement.dataset.sourceSide, null);
   else if (action === "build-round") buildRound();
+  else if (action === "run-card-separator") runCardSeparatorPreview();
+  else if (action === "copy-separator-text") copySeparatorText();
   else if (action === "add-generated-flow") addGeneratedToFlow();
   else if (action === "regenerate-answer") runRoundAsk(state.roundAsk.query);
   else if (action === "copy-generated" && state.roundAsk.generated) {
@@ -1345,6 +1599,13 @@ app.addEventListener("click", (event) => {
     call("reveal_path", { path: state.paths.appData }).catch(console.error);
   }
   render();
+});
+
+app.addEventListener("pointerdown", (event) => {
+  const handle = event.target instanceof Element ? event.target.closest("[data-resize-target]") : null;
+  if (!handle) return;
+  event.preventDefault();
+  startWorkspaceResize(handle.dataset.resizeTarget, event.clientX);
 });
 
 app.addEventListener("submit", (event) => {
@@ -1372,7 +1633,25 @@ app.addEventListener("submit", (event) => {
 
 app.addEventListener("input", (event) => {
   const input = event.target;
-  if (!(input instanceof HTMLInputElement)) return;
+  if (!(input instanceof HTMLInputElement) && !(input instanceof HTMLTextAreaElement)) return;
+
+  if (input.matches("[data-grammar-editor]")) {
+    state.roundGrammarText = input.value;
+    input.closest(".grammar-editor")?.querySelector("pre")?.replaceChildren(fragmentFromHtml(highlightGrammar(input.value)));
+    saveWorkspaceSoon();
+    return;
+  }
+
+  if (input.matches("[data-card-separator-field]")) {
+    const key = input.dataset.cardSeparatorField;
+    state.tools.cardSeparator[key] = input.value;
+    state.tools.cardSeparator.ran = false;
+    state.tools.cardSeparator.rawText = "";
+    state.tools.cardSeparator.error = "";
+    state.cardSeparatorUpload = null;
+    saveWorkspaceSoon();
+    return;
+  }
 
   if (input.classList.contains("command-input")) {
     state.commandText = input.value;
@@ -1396,12 +1675,35 @@ app.addEventListener("input", (event) => {
   }
 });
 
-app.addEventListener("change", (event) => {
+app.addEventListener("change", async (event) => {
   const input = event.target;
   if (!(input instanceof HTMLInputElement)) return;
 
   if (input.dataset.fileSide && input.files?.[0]) {
     acceptRoundFiles(input.dataset.fileSide, input.files);
+    return;
+  }
+
+  if (input.matches("[data-card-separator-file]") && input.files?.[0]) {
+    const file = input.files[0];
+    state.cardSeparatorUpload = sourcePathFromFile(file)
+      ? null
+      : {
+          name: file.name || "card-separator.docx",
+          bytes: Array.from(new Uint8Array(await file.arrayBuffer())),
+        };
+    state.tools.cardSeparator = {
+      ...state.tools.cardSeparator,
+      docxPath: sourcePathFromFile(file) || file.name || "",
+      running: false,
+      ran: false,
+      rawText: "",
+      error: "",
+      stderr: "",
+      cardCount: null,
+    };
+    saveWorkspaceSoon();
+    render();
     return;
   }
 
@@ -1435,24 +1737,27 @@ app.addEventListener("keydown", (event) => {
 });
 
 app.addEventListener("dragover", (event) => {
-  const dropZone = event.target instanceof Element ? event.target.closest("[data-drop-side]") : null;
+  const dropZone = event.target instanceof Element ? event.target.closest("[data-drop-side], [data-drop-card-separator]") : null;
   if (!dropZone) return;
   event.preventDefault();
   dropZone.classList.add("drag-over");
 });
 
 app.addEventListener("dragleave", (event) => {
-  const dropZone = event.target instanceof Element ? event.target.closest("[data-drop-side]") : null;
+  const dropZone = event.target instanceof Element ? event.target.closest("[data-drop-side], [data-drop-card-separator]") : null;
   dropZone?.classList.remove("drag-over");
 });
 
 app.addEventListener("drop", (event) => {
-  const dropZone = event.target instanceof Element ? event.target.closest("[data-drop-side]") : null;
+  const dropZone = event.target instanceof Element ? event.target.closest("[data-drop-side], [data-drop-card-separator]") : null;
   if (!dropZone) return;
   event.preventDefault();
   dropZone.classList.remove("drag-over");
   const files = event.dataTransfer?.files;
-  if (files?.length) {
+  if (!files?.length) return;
+  if (dropZone.matches("[data-drop-card-separator]")) {
+    acceptCardSeparatorFiles(files);
+  } else {
     acceptRoundFiles(dropZone.dataset.dropSide, files);
   }
 });
@@ -1463,13 +1768,22 @@ async function installNativeDragDrop() {
   await webview.onDragDropEvent((event) => {
     if (event.payload.type === "over") {
       const side = sideFromDropPosition(event.payload.position);
+      const overCardSeparator = Boolean(cardSeparatorDropFromPosition(event.payload.position));
       document.querySelectorAll("[data-drop-side]").forEach((zone) => {
-        zone.classList.toggle("drag-over", zone.dataset.dropSide === side);
+        zone.classList.toggle("drag-over", !overCardSeparator && zone.dataset.dropSide === side);
+      });
+      document.querySelectorAll("[data-drop-card-separator]").forEach((zone) => {
+        zone.classList.toggle("drag-over", overCardSeparator);
       });
       return;
     }
     document.querySelectorAll("[data-drop-side]").forEach((zone) => zone.classList.remove("drag-over"));
+    document.querySelectorAll("[data-drop-card-separator]").forEach((zone) => zone.classList.remove("drag-over"));
     if (event.payload.type !== "drop") return;
+    if (cardSeparatorDropFromPosition(event.payload.position)) {
+      acceptCardSeparatorFiles(event.payload.paths || []);
+      return;
+    }
     const side = sideFromDropPosition(event.payload.position);
     if (!side) return;
     acceptRoundFiles(side, event.payload.paths || []);
@@ -1479,6 +1793,38 @@ async function installNativeDragDrop() {
 function sideFromDropPosition(position) {
   const element = document.elementFromPoint(position?.x || 0, position?.y || 0);
   return element?.closest?.("[data-drop-side]")?.dataset.dropSide || "";
+}
+
+function cardSeparatorDropFromPosition(position) {
+  const element = document.elementFromPoint(position?.x || 0, position?.y || 0);
+  return element?.closest?.("[data-drop-card-separator]") || null;
+}
+
+function startWorkspaceResize(target, startX) {
+  const initialActivity = state.layout.activityWidth;
+  const initialSidebar = state.layout.sidebarWidth;
+
+  function onMove(event) {
+    const delta = event.clientX - startX;
+    if (target === "activity") {
+      state.layout.activityWidth = clamp(initialActivity + delta, 48, 150);
+    } else if (target === "sidebar") {
+      state.layout.sidebarWidth = clamp(initialSidebar + delta, 180, 420);
+    }
+    document.querySelector(".workspace-grid")?.style.setProperty("--activity-width", `${state.layout.activityWidth}px`);
+    document.querySelector(".workspace-grid")?.style.setProperty("--sidebar-width", `${state.layout.sidebarWidth}px`);
+  }
+
+  function onUp() {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    document.body.classList.remove("is-resizing");
+    saveWorkspaceSoon();
+  }
+
+  document.body.classList.add("is-resizing");
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp, { once: true });
 }
 
 async function saveSettings() {
@@ -1502,6 +1848,10 @@ function statusLabel(status) {
   }[status] || status || "Empty";
 }
 
+function normalizeAskScope(scope) {
+  return scope === "opponent" ? "opponent" : "ours";
+}
+
 function segmented(name, activeValue, options) {
   return `
     <div class="segmented">
@@ -1521,6 +1871,26 @@ function groupBy(items, getKey) {
     groups[key].push(item);
     return groups;
   }, {});
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function highlightGrammar(value) {
+  return escapeHtml(value)
+    .replace(/(\[[^\]]+\])/g, '<span class="grammar-field">$1</span>')
+    .replace(/(--|\*|\?|\+)/g, '<span class="grammar-token">$1</span>');
+}
+
+function fragmentFromHtml(html) {
+  return document.createRange().createContextualFragment(html);
+}
+
+function shellLikeQuote(value) {
+  const text = String(value || "");
+  if (!text || !/[\s'"\\]/.test(text)) return text;
+  return `'${text.replaceAll("'", "'\\''")}'`;
 }
 
 function shortcutLabel(key) {
@@ -1556,9 +1926,16 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-  if (state.settings.theme === "system") render();
-});
+const colorSchemeQuery = matchMedia("(prefers-color-scheme: dark)");
+if (colorSchemeQuery.addEventListener) {
+  colorSchemeQuery.addEventListener("change", () => {
+    if (state.settings.theme === "system") render();
+  });
+} else if (colorSchemeQuery.addListener) {
+  colorSchemeQuery.addListener(() => {
+    if (state.settings.theme === "system") render();
+  });
+}
 
 async function bootstrap() {
   const [settings, workspace, paths] = await Promise.all([
@@ -1579,10 +1956,28 @@ async function bootstrap() {
     state.activeActivity = ACTIVITY_IDS.includes(workspace.activeActivity) ? workspace.activeActivity : state.activeActivity;
     state.round = workspace.round || state.round;
     state.roundSourcePaths = { ...state.roundSourcePaths, ...(workspace.roundSourcePaths || {}) };
+    state.roundGrammarText = workspace.roundGrammarText || state.roundGrammarText;
     state.roundView = workspace.roundView || state.roundView;
     state.roundEvidenceScope = workspace.roundEvidenceScope || state.roundEvidenceScope;
     state.roundEvidenceFilter = workspace.roundEvidenceFilter || state.roundEvidenceFilter;
     state.roundAsk = { ...state.roundAsk, ...(workspace.roundAsk || {}) };
+    state.roundAsk.scope = normalizeAskScope(state.roundAsk.scope);
+    state.layout = {
+      ...state.layout,
+      ...(workspace.layout || {}),
+    };
+    state.layout.activityWidth = clamp(Number(state.layout.activityWidth) || 92, 48, 150);
+    state.layout.sidebarWidth = clamp(Number(state.layout.sidebarWidth) || 280, 180, 420);
+    state.tools = {
+      ...state.tools,
+      ...(workspace.tools || {}),
+      cardSeparator: {
+        ...state.tools.cardSeparator,
+        ...(workspace.tools?.cardSeparator || {}),
+        running: false,
+        ran: false,
+      },
+    };
   }
   if (!state.tabs.some((tab) => tab.type === "round")) {
     const roundTab = { id: crypto.randomUUID(), type: "round", title: "Round Setup", state: {} };
@@ -1591,15 +1986,24 @@ async function bootstrap() {
     state.activeActivity = "round";
   }
   await ensureRound();
-  await installNativeDragDrop().catch(console.error);
   if (state.round?.status === "ready") {
     await refreshRoundEvidence(false);
   }
   render();
+  installNativeDragDrop().catch(console.error);
   if (activeTab()?.type === "search") runSearch(activeTab()?.state?.query || "");
 }
 
-bootstrap();
+window.addEventListener("error", (event) => {
+  showStartupError(event.error || event.message);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  showStartupError(event.reason);
+});
+
+render();
+bootstrap().catch(showStartupError);
 
 function filterCommandRows() {
   const query = state.commandText.trim().toLowerCase();
