@@ -196,6 +196,7 @@ class HybridRetrievalEngine:
                 "clusters": [cluster.to_dict() for cluster in bundle.clusters],
                 "argument_bundle": bundle.to_dict(),
                 "timings": timings,
+                "bundle_debug": self.argument_builder.last_debug,
             }
 
         source_results, retrieval_timings = self._retrieve_candidates_timed(
@@ -252,7 +253,81 @@ class HybridRetrievalEngine:
             "clusters": [cluster.to_dict() for cluster in bundle.clusters],
             "argument_bundle": bundle.to_dict(),
             "timings": timings,
+            "bundle_debug": self.argument_builder.last_debug,
         }
+
+    def candidate_trace(self, request: HybridSearchRequest | str) -> dict[str, Any]:
+        """Return cheap first-pass candidates without hydration/rerank/bundling."""
+        trace_started = time.perf_counter()
+        timings: dict[str, float] = {}
+        if isinstance(request, str):
+            request = HybridSearchRequest(query=request)
+        started = time.perf_counter()
+        intent = parse_query_intent(request.query, mode=request.mode)
+        timings["parse_intent"] = _elapsed_ms(started)
+        started = time.perf_counter()
+        lookup = self._lookup(intent, request)
+        timings["lookup"] = _elapsed_ms(started)
+        if lookup is not None:
+            timings["total"] = _elapsed_ms(trace_started)
+            timings["accounted"] = _accounted_ms(timings)
+            timings["unaccounted"] = max(
+                0.0, timings["total"] - timings["accounted"]
+            )
+            return {
+                "intent": intent,
+                "retrieval_text": retrieval_text(intent),
+                "source_results": {_lookup_source_name(intent): lookup},
+                "candidates": lookup,
+                "timings": timings,
+            }
+
+        source_results, retrieval_timings = self._retrieve_candidates_timed(
+            intent, request
+        )
+        started = time.perf_counter()
+        candidates = reciprocal_rank_fusion(source_results)
+        timings = {
+            **timings,
+            **retrieval_timings,
+            "fusion": _elapsed_ms(started),
+        }
+        timings["total"] = _elapsed_ms(trace_started)
+        timings["accounted"] = _accounted_ms(timings)
+        timings["unaccounted"] = max(0.0, timings["total"] - timings["accounted"])
+        return {
+            "intent": intent,
+            "retrieval_text": retrieval_text(intent),
+            "source_results": source_results,
+            "candidates": candidates,
+            "timings": timings,
+        }
+
+    def rerank_candidates(
+        self,
+        query: str,
+        rows: list[dict[str, Any]],
+        limit: int | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, float]]:
+        """Hydrate and rerank a global candidate pool once."""
+        started_total = time.perf_counter()
+        timings: dict[str, float] = {}
+        started = time.perf_counter()
+        intent = parse_query_intent(query)
+        timings["parse_intent"] = _elapsed_ms(started)
+        started = time.perf_counter()
+        expanded = self._expand_cards(rows)
+        timings["sqlite_hydration"] = _elapsed_ms(started)
+        started = time.perf_counter()
+        filtered = [row for row in expanded if _matches_filters(row, intent)]
+        timings["filter"] = _elapsed_ms(started)
+        started = time.perf_counter()
+        reranked = self.reranker.rerank(intent, filtered, limit=limit)
+        timings["rerank"] = _elapsed_ms(started)
+        timings["total"] = _elapsed_ms(started_total)
+        timings["accounted"] = _accounted_ms(timings)
+        timings["unaccounted"] = max(0.0, timings["total"] - timings["accounted"])
+        return reranked, timings
 
     def _lookup(
         self,
