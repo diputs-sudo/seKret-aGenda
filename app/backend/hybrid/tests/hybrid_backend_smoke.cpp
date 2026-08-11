@@ -1,11 +1,16 @@
 #include "hybrid.hpp"
 #include "fusion.hpp"
 #include "argument_builder.hpp"
+#include "format_parser.hpp"
 #include "mechanism.hpp"
 #include "ollama_embedder.hpp"
 #include "query_intent.hpp"
 #include "reranker.hpp"
+#include "round_import.hpp"
 #include "sqlite_store.hpp"
+#include "vector_store.hpp"
+
+#include <sqlite3.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -37,7 +42,7 @@ int test_search_json_returns_response() {
     auto result = sekret_hybrid_search_json(
         "var/sekret-agenda.sqlite3",
         "var/chroma",
-        "{\"query\":\"AI sports betting\",\"limit\":10}"
+        "{\"query\":\"Hashem\",\"limit\":3}"
     );
     const auto error = take_string(result.error);
     const auto json = take_string(result.json);
@@ -46,12 +51,42 @@ int test_search_json_returns_response() {
     failures += expect(error.empty(), "expected no error from valid search request");
     failures += expect(!json.empty(), "expected JSON response");
     failures += expect(
-        json.find("\"cards\":[]") != std::string::npos,
-        "expected empty cards array in placeholder response"
+        json.find("\"cards\":[") != std::string::npos,
+        "expected cards array in JSON response"
     );
     failures += expect(
-        json.find("\"sourceStatus\":\"ANALYSIS ONLY\"") != std::string::npos,
-        "expected ANALYSIS ONLY source status"
+        json.find("\"sourceStatus\":\"") != std::string::npos,
+        "expected source status"
+    );
+    return failures;
+}
+
+int test_search_json_direct_lookup_with_default_db_when_present() {
+    const std::string db_path = "var/sekret-agenda.sqlite3";
+    std::ifstream db(db_path);
+    if (!db.good()) {
+        return 0;
+    }
+
+    auto result = sekret_hybrid_search_json(
+        db_path.c_str(),
+        "var/chroma",
+        "{\"query\":\"Hashem\",\"limit\":3,\"includeDiagnostics\":true}"
+    );
+    const auto error = take_string(result.error);
+    const auto json = take_string(result.json);
+
+    int failures = 0;
+    failures += expect(error.empty(), "expected no error from direct lookup");
+    failures += expect(json.find("\"cards\":[{") != std::string::npos, "expected real cards in JSON response");
+    failures += expect(json.find("Hashem") != std::string::npos, "expected Hashem direct lookup result");
+    failures += expect(
+        json.find("\"sourceStatus\":\"BACKFILE-SOURCED\"") != std::string::npos,
+        "expected sourced status for direct lookup"
+    );
+    failures += expect(
+        json.find("author_lookup") != std::string::npos,
+        "expected author lookup diagnostics"
     );
     return failures;
 }
@@ -240,6 +275,210 @@ int test_reciprocal_rank_fusion_unions_sources() {
     return failures;
 }
 
+int test_native_sqlite_vector_store_searches_cached_vectors() {
+    const std::string db_path = "/tmp/sekret-native-vector-smoke.sqlite3";
+    std::remove(db_path.c_str());
+
+    sqlite3* db = nullptr;
+    if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) {
+        return expect(false, "expected temporary vector DB to open");
+    }
+    const char* sql = R"SQL(
+CREATE TABLE native_card_vectors (
+    card_id TEXT NOT NULL,
+    embedding_kind TEXT NOT NULL,
+    embedding_model TEXT NOT NULL,
+    vector_json TEXT NOT NULL,
+    updated_at TEXT,
+    PRIMARY KEY (card_id, embedding_kind, embedding_model)
+);
+INSERT INTO native_card_vectors VALUES ('card-a', 'fast', 'fake-model', '[1,0,0]', NULL);
+INSERT INTO native_card_vectors VALUES ('card-b', 'fast', 'fake-model', '[0,1,0]', NULL);
+)SQL";
+    char* error = nullptr;
+    const int exec_status = sqlite3_exec(db, sql, nullptr, nullptr, &error);
+    if (exec_status != SQLITE_OK) {
+        std::cerr << "SQLite setup error: " << (error == nullptr ? "" : error) << "\n";
+        sqlite3_free(error);
+        sqlite3_close(db);
+        return expect(false, "expected temporary vector schema setup");
+    }
+    sqlite3_close(db);
+
+    const sekret::hybrid::NativeSqliteVectorStore store(db_path);
+    const auto rows = store.search({1, 0, 0}, "fast", "fake-model", 2);
+
+    int failures = 0;
+    failures += expect(store.has_vectors("fast", "fake-model"), "expected cached fast vectors");
+    failures += expect(rows.size() == 1, "expected only positive cosine matches");
+    failures += expect(rows.front().card_id == "card-a", "expected nearest vector card-a");
+    failures += expect(sekret::hybrid::parse_vector_json("[1, 2.5, -3]").size() == 3, "expected vector JSON parsing");
+    failures += expect(
+        sekret::hybrid::cosine_similarity({1, 0}, {1, 0}) == 1.0,
+        "expected unit cosine similarity"
+    );
+    std::remove(db_path.c_str());
+    return failures;
+}
+
+int test_format_parser_extracts_dsl_cards() {
+    const std::string grammar = R"DSL(
+-- [card] -- [author]
+[section]?
+[tag]
+[content]+
+)DSL";
+    const std::string text = R"TXT(
+-- AI Good -- Smith 2024
+
+AT: Innovation
+
+AI improves public services.
+
+Warrant line two.
+
+-- AI Bad -- Jones 2023
+
+AT: Safety
+
+AI creates verification failures.
+)TXT";
+
+    const auto parsed = sekret::hybrid::parse_evidence_dsl(text, grammar);
+
+    int failures = 0;
+    failures += expect(parsed.cards.size() == 2, "expected two parsed DSL cards");
+    failures += expect(parsed.cards.front().fields.at("card") == "AI Good", "expected first card name");
+    failures += expect(parsed.cards.front().fields.at("author") == "Smith 2024", "expected first author");
+    failures += expect(
+        parsed.cards.front().fields.at("content").find("Warrant line two") != std::string::npos,
+        "expected repeated content blocks"
+    );
+    return failures;
+}
+
+int test_round_import_writes_opponent_cards_to_sqlite() {
+    const std::string db_path = "/tmp/sekret-round-import-smoke.sqlite3";
+    const std::string source_path = "/tmp/sekret-round-import-source.txt";
+    const std::string grammar_path = "/tmp/sekret-round-import-grammar.sa";
+    std::remove(db_path.c_str());
+
+    {
+        std::ofstream source(source_path);
+        source << "-- AI Good -- Smith 2024\n\nAT: Innovation\n\nAI improves public services.\n";
+        std::ofstream grammar(grammar_path);
+        grammar << "-- [card] -- [author]\n[section]\n[content]+\n";
+    }
+
+    sqlite3* db = nullptr;
+    if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) {
+        return expect(false, "expected temporary round DB to open");
+    }
+    const char* sql = R"SQL(
+PRAGMA foreign_keys = ON;
+CREATE TABLE debate_documents (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_path TEXT,
+    source_format TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE sections (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES debate_documents(id) ON DELETE CASCADE,
+    parent_id TEXT REFERENCES sections(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    argument_type TEXT NOT NULL DEFAULT 'unknown',
+    order_index INTEGER,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE evidence_cards (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES debate_documents(id) ON DELETE CASCADE,
+    section_id TEXT NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL,
+    card_name TEXT,
+    argument_name TEXT,
+    body TEXT NOT NULL,
+    category TEXT,
+    topical INTEGER,
+    side TEXT,
+    source_path TEXT,
+    content_hash TEXT NOT NULL,
+    paragraph_start INTEGER,
+    paragraph_end INTEGER,
+    source_format TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE citations (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL UNIQUE REFERENCES evidence_cards(id) ON DELETE CASCADE,
+    raw TEXT NOT NULL,
+    author TEXT,
+    year INTEGER,
+    source_url TEXT
+);
+CREATE TABLE highlights (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL REFERENCES evidence_cards(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    color TEXT,
+    highlight_color TEXT,
+    order_index INTEGER NOT NULL DEFAULT 0
+);
+CREATE VIRTUAL TABLE evidence_cards_fts USING fts5(
+    card_id UNINDEXED,
+    tag,
+    card_name,
+    citation,
+    body,
+    tokenize='porter unicode61'
+);
+)SQL";
+    char* error = nullptr;
+    const int exec_status = sqlite3_exec(db, sql, nullptr, nullptr, &error);
+    if (exec_status != SQLITE_OK) {
+        std::cerr << "SQLite setup error: " << (error == nullptr ? "" : error) << "\n";
+        sqlite3_free(error);
+        sqlite3_close(db);
+        return expect(false, "expected temporary round schema setup");
+    }
+    sqlite3_close(db);
+
+    auto result = sekret_import_opponent_dsl_json(db_path.c_str(), source_path.c_str(), grammar_path.c_str());
+    const auto import_error = take_string(result.error);
+    const auto json = take_string(result.json);
+
+    db = nullptr;
+    sqlite3_open(db_path.c_str(), &db);
+    sqlite3_stmt* statement = nullptr;
+    sqlite3_prepare_v2(
+        db,
+        "SELECT count(*) FROM evidence_cards WHERE side = 'opponent' AND source_format = 'sa-dsl'",
+        -1,
+        &statement,
+        nullptr
+    );
+    int count = 0;
+    if (sqlite3_step(statement) == SQLITE_ROW) {
+        count = sqlite3_column_int(statement, 0);
+    }
+    sqlite3_finalize(statement);
+    sqlite3_close(db);
+
+    int failures = 0;
+    failures += expect(import_error.empty(), "expected no error from opponent DSL import");
+    failures += expect(json.find("\"cardCount\":1") != std::string::npos, "expected import card count JSON");
+    failures += expect(count == 1, "expected one opponent card in SQLite");
+
+    std::remove(db_path.c_str());
+    std::remove(source_path.c_str());
+    std::remove(grammar_path.c_str());
+    return failures;
+}
+
 sekret::hybrid::RetrievedCard make_card(
     const std::string& id,
     const std::string& section,
@@ -317,12 +556,16 @@ int test_reranker_gate_and_argument_builder() {
 int main() {
     int failures = 0;
     failures += test_search_json_returns_response();
+    failures += test_search_json_direct_lookup_with_default_db_when_present();
     failures += test_search_json_validates_required_inputs();
     failures += test_query_intent_matches_python_contract_examples();
     failures += test_mechanism_extracts_expected_concepts();
     failures += test_sqlite_helpers_smoke();
     failures += test_ollama_embedding_response_parser();
     failures += test_reciprocal_rank_fusion_unions_sources();
+    failures += test_native_sqlite_vector_store_searches_cached_vectors();
+    failures += test_format_parser_extracts_dsl_cards();
+    failures += test_round_import_writes_opponent_cards_to_sqlite();
     failures += test_reranker_gate_and_argument_builder();
 
     if (failures != 0) {
