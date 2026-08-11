@@ -35,6 +35,7 @@ struct EvidenceCard {
     std::vector<Highlight> highlights;
     double score = 0.0;
     std::string document_name;
+    std::string side;
     std::optional<SearchDiagnostics> diagnostics;
 };
 
