@@ -24,6 +24,7 @@ Commands:
   build-sides --us <docx> --opponent <docx>
                             Build SQLite from our/opponent DOCX files
   build-vector              Build Chroma vector index from SQLite
+  build-native-vector       Build native desktop vector cache in SQLite
   rebuild                   Build SQLite, then rebuild Chroma
   search <query>            Keyword search through SQLite
   vector <query>            Vector search through Chroma with reranking
@@ -54,6 +55,7 @@ Examples:
   ./run.sh rebuild
   OUR_SIDE=negative OPPONENT_SIDE=affirmative ./run.sh build-sides --us data/ex-tech-NEG-APR.docx --opponent data/ex-tech-AFF-APR.docx
   ./run.sh vector "automation escalation"
+  ./run.sh build-native-vector
   ./run.sh hybrid "AI sports betting"
   ./run.sh hybrid --concept-debug "Opponent says AI escalates because of automation."
   ./run.sh side "opponent says AI sports betting increases addiction"
@@ -108,9 +110,16 @@ case "$command" in
       --reset
     ;;
 
+  build-native-vector)
+    python3 scripts/build_native_vector_cache.py \
+      --db "$DB_PATH" \
+      --reset
+    ;;
+
   rebuild)
     "$0" build-db
     "$0" build-vector
+    "$0" build-native-vector
     ;;
 
   search)
