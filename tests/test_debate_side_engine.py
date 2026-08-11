@@ -109,8 +109,9 @@ def test_answer_query_builds_counterclaim_and_attack_probes():
 
     assert probe_text["original"] == "Trump nuclear posture deletes diplomacy"
     assert "preserves improves diplomacy" in probe_text["counterclaim"]
-    assert "no link" in probe_text["mitigation"]
-    assert "posture deletes diplomacy" in probe_text["mechanism"]
+    assert "causal link is weak" in probe_text["no_link"]
+    assert "claimed harm" in probe_text["turn"]
+    assert "trump nuclear posture diplomacy" in probe_text["lexical"]
 
 
 def test_weak_our_answer_is_audited_but_not_returned():
@@ -124,6 +125,7 @@ def test_weak_our_answer_is_audited_but_not_returned():
                 owner="us",
                 relationship="CONTRADICTS",
                 tag="AND causes deterrence break-down; an existential great power war.",
+                citation="Santos 26 nuclear posture diplomacy",
                 score=0.7,
             )
         ],
@@ -137,17 +139,47 @@ def test_weak_our_answer_is_audited_but_not_returned():
     assert "confidence" in decision["reason"] or "directness" in decision["reason"]
 
 
+def test_opponent_lane_does_not_accept_conflict_cards():
+    engine = DebateSideEngine()
+    result = engine.build(
+        "opponent says Trump nuclear posture deletes diplomacy",
+        [
+            _card(
+                "their-indict",
+                owner="opponent",
+                relationship="INDICTS",
+                tag="Claims that nuclear posture causes diplomatic collapse overstate the evidence.",
+                score=0.9,
+            ),
+            _card(
+                "their-support",
+                owner="opponent",
+                relationship="SUPPORTS",
+                tag="Trump nuclear posture deletes diplomacy.",
+                score=0.9,
+            ),
+        ],
+        limit_per_lane=5,
+    )
+
+    opponent_ids = [candidate.card_id for candidate in result.opponent_lane.candidates]
+    assert "their-support" in opponent_ids
+    assert "their-indict" not in opponent_ids
+
+
 def _card(
     card_id,
     *,
     owner,
     relationship,
     tag="",
+    citation="",
     score=0.8,
 ):
     return {
         "card_id": card_id,
         "tag": tag,
+        "citation": citation,
         "retrieval_score": score,
         "metadata": {"owner": owner},
         "candidate_assessment": {
