@@ -126,6 +126,13 @@ std::string response_to_json(const HybridSearchResponse& response) {
         output << "],";
         output << "\"score\":" << card.score << ",";
         output << "\"documentName\":\"" << json_escape(card.document_name) << "\",";
+        output << "\"side\":";
+        if (!card.side.empty()) {
+            output << "\"" << json_escape(card.side) << "\"";
+        } else {
+            output << "null";
+        }
+        output << ",";
         output << "\"diagnostics\":";
         if (card.diagnostics.has_value()) {
             output << "{";
