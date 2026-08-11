@@ -15,10 +15,13 @@ for optional_source in \
   "$ROOT/query_intent.cpp" \
   "$ROOT/sqlite_store.cpp" \
   "$ROOT/ollama_embedder.cpp" \
+  "$ROOT/vector_store.cpp" \
   "$ROOT/fusion.cpp" \
   "$ROOT/candidate_assessment.cpp" \
   "$ROOT/reranker.cpp" \
-  "$ROOT/argument_builder.cpp"
+  "$ROOT/argument_builder.cpp" \
+  "$ROOT/format_parser.cpp" \
+  "$ROOT/round_import.cpp"
 do
   if [[ -f "$optional_source" ]]; then
     sources+=("$optional_source")
