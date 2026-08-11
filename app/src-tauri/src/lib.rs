@@ -2,9 +2,13 @@ mod hybrid;
 
 use rusqlite::{Connection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use tauri::Manager;
 use tauri_plugin_clipboard_manager::ClipboardExt;
+
+const CARD_SEPARATOR_BYTES: &[u8] = include_bytes!(env!("CARD_SEPARATOR_BIN"));
+const CARD_SEPARATOR_SOURCE: &str = env!("CARD_SEPARATOR_SOURCE");
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,6 +84,61 @@ struct RoundEvidenceQuery {
     limit: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RoundAskQuery {
+    round_id: Option<String>,
+    query: String,
+    scope: Option<String>,
+    mode: Option<String>,
+    limit: Option<usize>,
+    generate_answer: Option<bool>,
+    include_diagnostics: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RoundSearchResult {
+    card: EvidenceCard,
+    score: f64,
+    relationship: String,
+    explanation: String,
+    debug: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeneratedResponse {
+    text: String,
+    sources: Vec<String>,
+    grounded: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RoundAskResponse {
+    results: Vec<RoundSearchResult>,
+    generated: Option<GeneratedResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CardSeparatorRequest {
+    docx_path: Option<String>,
+    source_name: Option<String>,
+    docx_bytes: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CardSeparatorResponse {
+    output: String,
+    stderr: String,
+    source_file: String,
+    executable_path: String,
+    card_count: Option<usize>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SearchDiagnostics {
@@ -114,26 +173,6 @@ impl Default for SettingsState {
             scale: 1.0,
             search_result_count: 20,
             developer_search_diagnostics: false,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WorkspaceState {
-    workspace_name: String,
-    tabs: serde_json::Value,
-    active_tab_id: Option<String>,
-    active_activity: String,
-}
-
-impl Default for WorkspaceState {
-    fn default() -> Self {
-        Self {
-            workspace_name: "Default Workspace".into(),
-            tabs: serde_json::json!([]),
-            active_tab_id: None,
-            active_activity: "search".into(),
         }
     }
 }
@@ -181,12 +220,12 @@ fn save_settings(app: tauri::AppHandle, settings: SettingsState) -> Result<(), S
 }
 
 #[tauri::command]
-fn load_workspace(app: tauri::AppHandle) -> Result<WorkspaceState, String> {
-    read_json(app, "workspace.json").map(|value| value.unwrap_or_default())
+fn load_workspace(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    read_json(app, "workspace.json").map(|value| value.unwrap_or_else(default_workspace_state))
 }
 
 #[tauri::command]
-fn save_workspace(app: tauri::AppHandle, workspace: WorkspaceState) -> Result<(), String> {
+fn save_workspace(app: tauri::AppHandle, workspace: serde_json::Value) -> Result<(), String> {
     write_json(app, "workspace.json", &workspace)
 }
 
@@ -224,7 +263,7 @@ fn import_round_source(app: tauri::AppHandle, request: RoundSourceImportRequest)
         request.source_path.as_deref(),
         request.source_name.as_deref(),
         request.source_text.as_deref(),
-        "source.txt",
+        "source.docx",
     )?;
     let db_path = round_database_path(&app, round_id)?;
     initialize_round_database(&db_path)?;
@@ -243,7 +282,7 @@ fn import_round_source(app: tauri::AppHandle, request: RoundSourceImportRequest)
             parse_progress: 0.0,
             index_progress: 0.0,
             error: String::new(),
-            diagnostics: vec!["Native import currently supports opponent .txt plus .sa DSL sources.".into()],
+            diagnostics: vec!["Native import currently registers our-side files; opponent DOCX plus SA parsing is active.".into()],
         });
     }
 
@@ -255,7 +294,15 @@ fn import_round_source(app: tauri::AppHandle, request: RoundSourceImportRequest)
         request.grammar_text.as_deref(),
         "grammar.sa",
     )?;
-    hybrid::import_opponent_dsl(&db_path, &source_path, &grammar_path)
+    let parser_source_path = materialize_docx_text_if_needed(&app, round_id, &source_path)?;
+    let mut state: RoundSourceState = hybrid::import_opponent_dsl(&db_path, &parser_source_path, &grammar_path)?;
+    state.filename = source_path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| state.filename.clone());
+    state.path = source_path.to_string_lossy().to_string();
+    state.diagnostics.push("Opponent DOCX was converted to parser text before SA matching.".into());
+    Ok(state)
 }
 
 #[tauri::command]
@@ -266,6 +313,186 @@ fn list_round_evidence(app: tauri::AppHandle, query: RoundEvidenceQuery) -> Resu
     let scope = query.scope.unwrap_or_else(|| "both".into());
     let text = query.query.unwrap_or_default();
     round_cards(&connection, &scope, text.trim(), limit).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn ask_round(app: tauri::AppHandle, request: RoundAskQuery) -> Result<RoundAskResponse, String> {
+    let db_path = round_database_path_or_default(&app, request.round_id.as_deref())?;
+    let scope = normalize_scope(request.scope.as_deref());
+    let mode = request.mode.as_deref().unwrap_or("smart");
+    let limit = request.limit.unwrap_or(20).clamp(1, 100);
+    let trimmed = request.query.trim();
+
+    let cards = if trimmed.is_empty() {
+        Vec::new()
+    } else if matches!(mode, "smart" | "semantic" | "hybrid" | "advanced") {
+        let query = SearchQuery {
+            text: trimmed.to_string(),
+            limit: Some(limit),
+            mode: Some("hybrid".into()),
+            scope: Some(scope.to_string()),
+            include_diagnostics: request.include_diagnostics,
+        };
+        match hybrid::search(&db_path, &query) {
+            Ok(cards) => scoped_cards(cards, scope, limit),
+            Err(_) => {
+                let connection = Connection::open(&db_path).map_err(|error| error.to_string())?;
+                round_cards(&connection, scope, trimmed, limit).map_err(|error| error.to_string())?
+            }
+        }
+    } else {
+        let connection = Connection::open(&db_path).map_err(|error| error.to_string())?;
+        round_cards(&connection, scope, trimmed, limit).map_err(|error| error.to_string())?
+    };
+
+    let results = cards
+        .into_iter()
+        .map(|card| round_result_for_card(card, mode))
+        .collect::<Vec<_>>();
+    let generated = request
+        .generate_answer
+        .unwrap_or(true)
+        .then(|| grounded_summary(trimmed, &results));
+
+    Ok(RoundAskResponse { results, generated })
+}
+
+#[tauri::command]
+fn run_card_separator(
+    app: tauri::AppHandle,
+    request: CardSeparatorRequest,
+) -> Result<CardSeparatorResponse, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| error.to_string())?;
+    run_card_separator_with_cache_dir(cache_dir, request)
+}
+
+fn run_card_separator_with_cache_dir(
+    cache_dir: PathBuf,
+    request: CardSeparatorRequest,
+) -> Result<CardSeparatorResponse, String> {
+    let docx_path = card_separator_docx_path(&cache_dir, &request)?;
+    if docx_path.as_os_str().is_empty() {
+        return Err("Choose a DOCX file first.".into());
+    }
+    if !docx_path.exists() {
+        return Err(format!("DOCX file not found: {}", docx_path.display()));
+    }
+    if docx_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| !extension.eq_ignore_ascii_case("docx"))
+        .unwrap_or(true)
+    {
+        return Err(format!("Card Separator requires a .docx file: {}", docx_path.display()));
+    }
+
+    let executable = materialize_card_separator_binary(&cache_dir)?;
+    let output = Command::new(&executable)
+        .arg(&docx_path)
+        .output()
+        .map_err(|error| {
+            format!(
+                "Failed to run card separator {}: {error}",
+                executable.display()
+            )
+        })?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if !output.status.success() {
+        return Err(format!(
+            "Card separator exited with status {}.\n{}",
+            output
+                .status
+                .code()
+                .map(|code| code.to_string())
+                .unwrap_or_else(|| "terminated by signal".into()),
+            stderr.trim()
+        ));
+    }
+    if !stderr.trim().is_empty() {
+        return Err(format!("Card separator wrote to stderr:\n{}", stderr.trim()));
+    }
+    if stdout.trim().is_empty() {
+        return Err("Card separator produced no usable output.".into());
+    }
+
+    Ok(CardSeparatorResponse {
+        output: stdout,
+        stderr,
+        source_file: CARD_SEPARATOR_SOURCE.into(),
+        executable_path: executable.to_string_lossy().to_string(),
+        card_count: None,
+    })
+}
+
+fn card_separator_docx_path(
+    cache_dir: &Path,
+    request: &CardSeparatorRequest,
+) -> Result<PathBuf, String> {
+    let provided_path = request.docx_path.as_deref().unwrap_or("").trim();
+    if !provided_path.is_empty() {
+        let path = PathBuf::from(provided_path);
+        if path.exists() {
+            return Ok(path);
+        }
+        if request.docx_bytes.is_none() {
+            return Ok(path);
+        }
+    }
+
+    let bytes = request
+        .docx_bytes
+        .as_ref()
+        .filter(|bytes| !bytes.is_empty())
+        .ok_or_else(|| "Choose a DOCX file first.".to_string())?;
+    let filename = request
+        .source_name
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("card-separator.docx");
+    let safe_name = safe_filename(filename);
+    let upload_dir = cache_dir
+        .join("uploads")
+        .join("card-separator");
+    std::fs::create_dir_all(&upload_dir).map_err(|error| error.to_string())?;
+    let path = upload_dir.join(safe_name);
+    std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
+    Ok(path)
+}
+
+fn materialize_card_separator_binary(cache_dir: &Path) -> Result<PathBuf, String> {
+    let bin_dir = cache_dir.join("bin");
+    std::fs::create_dir_all(&bin_dir).map_err(|error| error.to_string())?;
+
+    let executable = bin_dir.join(if cfg!(windows) {
+        "card_separator.exe"
+    } else {
+        "card_separator"
+    });
+
+    let should_write = std::fs::read(&executable)
+        .map(|existing| existing != CARD_SEPARATOR_BYTES)
+        .unwrap_or(true);
+    if should_write {
+        std::fs::write(&executable, CARD_SEPARATOR_BYTES).map_err(|error| error.to_string())?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&executable)
+            .map_err(|error| error.to_string())?
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&executable, permissions).map_err(|error| error.to_string())?;
+    }
+
+    Ok(executable)
 }
 
 #[tauri::command]
@@ -308,6 +535,98 @@ fn default_database_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .into_iter()
         .find(|path| path.exists())
         .ok_or_else(|| "Database not found. Set SEKRET_DB_PATH or build var/sekret-agenda.sqlite3.".to_string())
+}
+
+fn default_workspace_state() -> serde_json::Value {
+    serde_json::json!({
+        "workspaceName": "Default Workspace",
+        "tabs": [],
+        "activeTabId": null,
+        "activeActivity": "round"
+    })
+}
+
+fn normalize_scope(scope: Option<&str>) -> &'static str {
+    match scope {
+        Some("ours") => "ours",
+        Some("opponent") => "opponent",
+        _ => "both",
+    }
+}
+
+fn scoped_cards(cards: Vec<EvidenceCard>, scope: &str, limit: usize) -> Vec<EvidenceCard> {
+    cards
+        .into_iter()
+        .filter(|card| scope == "both" || card.side.as_deref() == Some(scope))
+        .take(limit)
+        .collect()
+}
+
+fn round_result_for_card(card: EvidenceCard, mode: &str) -> RoundSearchResult {
+    let relationship = if mode == "exact" {
+        "EXACT".to_string()
+    } else if card.side.as_deref() == Some("opponent") {
+        "OPPONENT".to_string()
+    } else {
+        "ANSWER".to_string()
+    };
+    let explanation = if let Some(diagnostics) = &card.diagnostics {
+        if diagnostics.retrieval.is_empty() {
+            "Matched by the local backend.".to_string()
+        } else {
+            format!("Matched by {}.", diagnostics.retrieval.join(", "))
+        }
+    } else if mode == "exact" {
+        "Matched by exact local evidence search.".to_string()
+    } else {
+        "Matched by the local round backend.".to_string()
+    };
+    let score = if card.score > 0.0 { card.score } else { 0.45 };
+    let debug = card.diagnostics.as_ref().map(|diagnostics| {
+        serde_json::json!({
+            "retrieval": &diagnostics.retrieval,
+            "concepts": &diagnostics.concepts,
+            "finalScore": diagnostics.final_score
+        })
+    });
+
+    RoundSearchResult {
+        card,
+        score,
+        relationship,
+        explanation,
+        debug,
+    }
+}
+
+fn grounded_summary(query: &str, results: &[RoundSearchResult]) -> GeneratedResponse {
+    let sources = results
+        .iter()
+        .take(3)
+        .map(|result| result.card.id.clone())
+        .collect::<Vec<_>>();
+    let citations = results
+        .iter()
+        .take(3)
+        .map(|result| result.card.title.clone())
+        .collect::<Vec<_>>();
+    let text = if results.is_empty() {
+        format!("No local evidence matched \"{query}\". Try a broader question or switch sides.")
+    } else {
+        format!(
+            "Found {} local card{} for \"{}\". Start with {}. This response is grounded in the returned evidence; full AI drafting can plug into the same source list later.",
+            results.len(),
+            if results.len() == 1 { "" } else { "s" },
+            query,
+            citations.join(", ")
+        )
+    };
+
+    GeneratedResponse {
+        text,
+        sources,
+        grounded: !results.is_empty(),
+    }
 }
 
 fn round_database_path(app: &tauri::AppHandle, round_id: &str) -> Result<PathBuf, String> {
@@ -363,6 +682,79 @@ fn materialize_round_upload(
     let upload_path = dir.join(filename);
     std::fs::write(&upload_path, text).map_err(|error| error.to_string())?;
     Ok(upload_path)
+}
+
+fn materialize_docx_text_if_needed(
+    app: &tauri::AppHandle,
+    round_id: &str,
+    source_path: &Path,
+) -> Result<PathBuf, String> {
+    if source_path.extension().and_then(|value| value.to_str()).map(|value| value.eq_ignore_ascii_case("docx")) != Some(true) {
+        return Ok(source_path.to_path_buf());
+    }
+
+    let text = extract_docx_text(source_path)?;
+    if text.trim().is_empty() {
+        return Err("DOCX contained no readable text.".into());
+    }
+
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("rounds")
+        .join(safe_filename(round_id))
+        .join("uploads");
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    let stem = source_path
+        .file_stem()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "opponent".into());
+    let text_path = dir.join(format!("{}-docx-text.txt", safe_filename(&stem)));
+    std::fs::write(&text_path, text).map_err(|error| error.to_string())?;
+    Ok(text_path)
+}
+
+fn extract_docx_text(path: &Path) -> Result<String, String> {
+    const SCRIPT: &str = r#"
+import sys
+import zipfile
+import xml.etree.ElementTree as ET
+
+WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+W = "{%s}" % WORD_NS["w"]
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    root = ET.fromstring(archive.read("word/document.xml"))
+
+for paragraph in root.findall(".//w:body/w:p", WORD_NS):
+    parts = []
+    for node in paragraph.iter():
+        if node.tag == W + "t":
+            parts.append(node.text or "")
+        elif node.tag == W + "tab":
+            parts.append(" ")
+        elif node.tag in {W + "br", W + "cr"}:
+            parts.append("\n")
+    text = "".join(parts).strip()
+    if text:
+        print(text)
+"#;
+
+    for python in ["python3", "python"] {
+        let output = Command::new(python)
+            .arg("-c")
+            .arg(SCRIPT)
+            .arg(path)
+            .output();
+        let Ok(output) = output else {
+            continue;
+        };
+        if output.status.success() {
+            return String::from_utf8(output.stdout).map_err(|error| error.to_string());
+        }
+    }
+    Err("DOCX import requires Python to extract document text in this alpha build.".into())
 }
 
 fn safe_filename(value: &str) -> String {
@@ -587,6 +979,62 @@ where
     std::fs::write(path, text).map_err(|error| error.to_string())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_cache_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "secret-agenda-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create test cache dir");
+        dir
+    }
+
+    #[test]
+    fn card_separator_runs_authoritative_cpp_from_path() {
+        let response = run_card_separator_with_cache_dir(
+            test_cache_dir("card-separator-path"),
+            CardSeparatorRequest {
+                docx_path: Some("/Users/kevingao/Developer/local/scripts/test.docx".into()),
+                source_name: None,
+                docx_bytes: None,
+            },
+        )
+        .expect("card separator should run against test.docx");
+
+        assert!(response
+            .output
+            .starts_with("NL - Chinese leadership is guaranteed."));
+        assert!(response.output.contains("T - Quantum will break all encryption"));
+        assert!(response.stderr.is_empty());
+        assert_eq!(response.source_file, CARD_SEPARATOR_SOURCE);
+    }
+
+    #[test]
+    fn card_separator_runs_authoritative_cpp_from_uploaded_bytes() {
+        let bytes = std::fs::read("/Users/kevingao/Developer/local/scripts/test.docx")
+            .expect("read test docx");
+        let response = run_card_separator_with_cache_dir(
+            test_cache_dir("card-separator-bytes"),
+            CardSeparatorRequest {
+                docx_path: None,
+                source_name: Some("test.docx".into()),
+                docx_bytes: Some(bytes),
+            },
+        )
+        .expect("card separator should run against uploaded bytes");
+
+        assert!(response
+            .output
+            .starts_with("NL - Chinese leadership is guaranteed."));
+        assert!(response.output.contains("Matt Swayne ‘26."));
+        assert!(response.stderr.is_empty());
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -601,6 +1049,8 @@ pub fn run() {
             search_evidence,
             import_round_source,
             list_round_evidence,
+            ask_round,
+            run_card_separator,
             copy_evidence,
             open_external_url,
             reveal_path
