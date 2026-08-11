@@ -10,6 +10,15 @@ class FakeEmbedder:
         return [1.0]
 
 
+class CountingEmbedder(FakeEmbedder):
+    def __init__(self):
+        self.calls = []
+
+    def embed(self, text):
+        self.calls.append(text)
+        return [float(len(text))]
+
+
 class FakeStore:
     def __init__(self, rows):
         self.rows = rows
@@ -17,6 +26,16 @@ class FakeStore:
 
     def search(self, query, embedder, limit):
         self.calls.append((query, embedder.model, limit))
+        return self.rows[:limit]
+
+
+class EmbeddingStore:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    def search_by_embedding(self, query_embedding, limit):
+        self.calls.append((query_embedding, limit))
         return self.rows[:limit]
 
 
@@ -173,6 +192,29 @@ def test_hybrid_retrieval_general_search_returns_no_evidence_for_weak_matches(tm
 
     assert trace["selected"] == []
     assert trace["accepted"] == []
+
+
+def test_hybrid_retrieval_reuses_one_query_embedding_for_fast_and_deep(tmp_path):
+    db_path = tmp_path / "test.sqlite3"
+    _write_cards(db_path)
+    embedder = CountingEmbedder()
+    fast_store = EmbeddingStore(
+        [{"card_id": "goldfarb", "score": 0.8, "metadata": {"tag": "Human control."}}]
+    )
+    deep_store = EmbeddingStore(
+        [{"card_id": "cox", "score": 0.7, "metadata": {"tag": "AI defuses escalation."}}]
+    )
+    engine = HybridRetrievalEngine(
+        db_path,
+        embedder,
+        fast_store=fast_store,
+        deep_store=deep_store,
+    )
+
+    engine.debug_trace("Human oversight prevents AI mistakes.")
+
+    assert len(embedder.calls) == 1
+    assert fast_store.calls[0][0] == deep_store.calls[0][0]
 
 
 def test_hybrid_retrieval_rejects_wrong_mechanism_after_reranking(tmp_path):
