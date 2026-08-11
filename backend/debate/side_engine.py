@@ -317,10 +317,6 @@ def _useful_in_opponent_lane(candidate: SideCandidate, intent: DebateIntent) -> 
             ClaimRelationship.SUPPORTS,
             ClaimRelationship.QUALIFIES,
             ClaimRelationship.BACKGROUND,
-            ClaimRelationship.CONTRADICTS,
-            ClaimRelationship.MITIGATES,
-            ClaimRelationship.INDICTS,
-            ClaimRelationship.NON_UNIQUE,
         }
     return relationship not in {
         ClaimRelationship.IRRELEVANT,
@@ -410,10 +406,10 @@ def _relationship_utility_for_lane(
             ClaimRelationship.SUPPORTS.value: 1.0,
             ClaimRelationship.QUALIFIES.value: 0.8,
             ClaimRelationship.BACKGROUND.value: 0.45,
-            ClaimRelationship.CONTRADICTS.value: 0.3,
-            ClaimRelationship.MITIGATES.value: 0.25,
-            ClaimRelationship.INDICTS.value: 0.25,
-            ClaimRelationship.NON_UNIQUE.value: 0.2,
+            ClaimRelationship.CONTRADICTS.value: 0.0,
+            ClaimRelationship.MITIGATES.value: 0.0,
+            ClaimRelationship.INDICTS.value: 0.0,
+            ClaimRelationship.NON_UNIQUE.value: 0.0,
             ClaimRelationship.TURNS.value: -0.5,
             ClaimRelationship.IRRELEVANT.value: -1.0,
             ClaimRelationship.UNKNOWN.value: 0.0,
@@ -442,10 +438,10 @@ def _relationship_utility_for_lane(
             ClaimRelationship.SUPPORTS.value: 1.0,
             ClaimRelationship.QUALIFIES.value: 0.8,
             ClaimRelationship.BACKGROUND.value: 0.55,
-            ClaimRelationship.CONTRADICTS.value: 0.45,
-            ClaimRelationship.MITIGATES.value: 0.35,
-            ClaimRelationship.INDICTS.value: 0.35,
-            ClaimRelationship.NON_UNIQUE.value: 0.25,
+            ClaimRelationship.CONTRADICTS.value: 0.0,
+            ClaimRelationship.MITIGATES.value: 0.0,
+            ClaimRelationship.INDICTS.value: 0.0,
+            ClaimRelationship.NON_UNIQUE.value: 0.0,
             ClaimRelationship.TURNS.value: -0.5,
             ClaimRelationship.IRRELEVANT.value: -1.0,
             ClaimRelationship.UNKNOWN.value: 0.0,
@@ -478,14 +474,21 @@ def _metadata(card: dict[str, Any]) -> dict[str, Any]:
 
 def _evidence_key(card: dict[str, Any]) -> str:
     metadata = _metadata(card)
-    for key in ("content_hash", "evidence_id", "card_id", "id"):
+    for key in ("content_hash", "evidence_id"):
         value = card.get(key) or metadata.get(key)
         if value:
             return f"{key}:{value}"
-    return "|".join(
+    content_key = "|".join(
         str(card.get(key) or "")
-        for key in ("citation", "tag", "body_preview", "body")
-    )
+        for key in ("card_name", "citation", "tag", "body_preview", "body")
+    ).strip()
+    if content_key:
+        return f"content:{content_key}"
+    for key in ("card_id", "id"):
+        value = card.get(key) or metadata.get(key)
+        if value:
+            return f"{key}:{value}"
+    return "unknown"
 
 
 def _fails_hard_gate(
@@ -516,6 +519,41 @@ def _hard_gate_reason(
         return f"{relationship.value} opponent claim"
     if lane == "opponent" and relationship in {ClaimRelationship.TURNS, ClaimRelationship.IRRELEVANT}:
         return f"{relationship.value} is not opponent evidence"
+    if lane == "opponent" and relationship not in {
+        ClaimRelationship.SUPPORTS,
+        ClaimRelationship.QUALIFIES,
+        ClaimRelationship.BACKGROUND,
+    }:
+        return f"{relationship.value} is not opponent evidence"
+    if (
+        lane == "opponent"
+        and relationship == ClaimRelationship.SUPPORTS
+        and candidate.relationship_confidence < 0.5
+    ):
+        return "opponent-support confidence < 0.50"
+    if (
+        lane == "opponent"
+        and relationship == ClaimRelationship.SUPPORTS
+        and candidate.topic_score < 0.2
+    ):
+        return "opponent-support topic < 0.20"
+    if (
+        lane == "opponent"
+        and relationship == ClaimRelationship.SUPPORTS
+        and candidate.directness < 0.2
+    ):
+        return "opponent-support directness < 0.20"
+    if (
+        lane == "opponent"
+        and relationship
+        not in {
+            ClaimRelationship.SUPPORTS,
+            ClaimRelationship.QUALIFIES,
+            ClaimRelationship.BACKGROUND,
+        }
+        and candidate.relationship_confidence < 0.5
+    ):
+        return "opponent-side conflict confidence < 0.50"
     if candidate.topic_score < 0.08 and candidate.mechanism_score < 0.08:
         return "topic and mechanism below floor"
     return None
