@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,7 @@ class HybridSearchRequest:
     vector_limit: int = 50
     lexical_limit: int = 50
     citation_limit: int = 20
+    query_embedding: list[float] | None = None
 
 
 class HybridRetrievalEngine:
@@ -99,8 +101,19 @@ class HybridRetrievalEngine:
         intent: QueryIntent,
         request: HybridSearchRequest,
     ) -> dict[str, list[dict[str, Any]]]:
+        source_results, _ = self._retrieve_candidates_timed(intent, request)
+        return source_results
+
+    def _retrieve_candidates_timed(
+        self,
+        intent: QueryIntent,
+        request: HybridSearchRequest,
+    ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, float]]:
         search_text = retrieval_text(intent)
         citation_query = _citation_lookup_query(intent)
+        timings: dict[str, float] = {}
+
+        started = time.perf_counter()
         with connect(self.db_path) as connection:
             lexical = search_cards(connection, search_text, request.lexical_limit)
             citation = (
@@ -110,28 +123,66 @@ class HybridRetrievalEngine:
                 if citation_query
                 else []
             )
+        timings["sqlite"] = _elapsed_ms(started)
+
+        query_embedding = request.query_embedding
+        if query_embedding is None:
+            started = time.perf_counter()
+            query_embedding = self.embedder.embed(search_text)
+            timings["query_embedding"] = _elapsed_ms(started)
+        else:
+            timings["query_embedding"] = 0.0
+
+        started = time.perf_counter()
+        fast_vector = _search_vector_store(
+            self._fast_store_or_create(),
+            search_text,
+            query_embedding,
+            self.embedder,
+            request.vector_limit,
+        )
+        timings["fast_vector"] = _elapsed_ms(started)
+
+        started = time.perf_counter()
+        deep_vector = _search_vector_store(
+            self._deep_store_or_create(),
+            search_text,
+            query_embedding,
+            self.embedder,
+            request.vector_limit,
+        )
+        timings["deep_vector"] = _elapsed_ms(started)
 
         return {
-            "fast_vector": self._fast_store_or_create().search(
-                search_text, self.embedder, request.vector_limit
-            ),
-            "deep_vector": self._deep_store_or_create().search(
-                search_text, self.embedder, request.vector_limit
-            ),
+            "fast_vector": fast_vector,
+            "deep_vector": deep_vector,
             "sqlite_fts": _normalize_sqlite_rows(lexical),
             "author_citation": _normalize_sqlite_rows(citation),
-        }
+        }, timings
 
     def debug_trace(self, request: HybridSearchRequest | str) -> dict[str, Any]:
+        trace_started = time.perf_counter()
+        timings: dict[str, float] = {}
         if isinstance(request, str):
             request = HybridSearchRequest(query=request)
+        started = time.perf_counter()
         intent = parse_query_intent(request.query, mode=request.mode)
+        timings["parse_intent"] = _elapsed_ms(started)
+        started = time.perf_counter()
         lookup = self._lookup(intent, request)
+        timings["lookup"] = _elapsed_ms(started)
         if lookup is not None:
+            started = time.perf_counter()
             bundle = self.argument_builder.build(
                 intent,
                 lookup,
                 limit=intent.requested_count or request.limit,
+            )
+            timings["bundle"] = _elapsed_ms(started)
+            timings["total"] = _elapsed_ms(trace_started)
+            timings["accounted"] = _accounted_ms(timings)
+            timings["unaccounted"] = max(
+                0.0, timings["total"] - timings["accounted"]
             )
             return {
                 "intent": intent,
@@ -144,23 +195,51 @@ class HybridRetrievalEngine:
                 "selected": bundle.cards,
                 "clusters": [cluster.to_dict() for cluster in bundle.clusters],
                 "argument_bundle": bundle.to_dict(),
+                "timings": timings,
             }
 
-        source_results = self.retrieve_candidates(intent, request)
+        source_results, retrieval_timings = self._retrieve_candidates_timed(
+            intent, request
+        )
+        started = time.perf_counter()
         fused = reciprocal_rank_fusion(source_results)
+        fusion_ms = _elapsed_ms(started)
+        started = time.perf_counter()
         expanded = self._expand_cards(fused)
+        hydrate_ms = _elapsed_ms(started)
+        started = time.perf_counter()
         filtered = [row for row in expanded if _matches_filters(row, intent)]
+        filter_ms = _elapsed_ms(started)
+        started = time.perf_counter()
         reranked = self.reranker.rerank(intent, filtered)
+        rerank_ms = _elapsed_ms(started)
+        started = time.perf_counter()
         if intent.search_mode == SearchMode.ARGUMENT:
             accepted, rejected = self.gate.split(reranked)
         else:
             accepted = _general_accept(reranked)
             rejected = [row for row in reranked if row not in accepted]
+        gate_ms = _elapsed_ms(started)
+        started = time.perf_counter()
         bundle = self.argument_builder.build(
             intent,
             accepted,
             limit=intent.requested_count or request.limit,
         )
+        bundle_ms = _elapsed_ms(started)
+        timings = {
+            **timings,
+            **retrieval_timings,
+            "fusion": fusion_ms,
+            "sqlite_hydration": hydrate_ms,
+            "filter": filter_ms,
+            "rerank": rerank_ms,
+            "gate": gate_ms,
+            "bundle": bundle_ms,
+        }
+        timings["total"] = _elapsed_ms(trace_started)
+        timings["accounted"] = _accounted_ms(timings)
+        timings["unaccounted"] = max(0.0, timings["total"] - timings["accounted"])
         return {
             "intent": intent,
             "retrieval_text": retrieval_text(intent),
@@ -172,6 +251,7 @@ class HybridRetrievalEngine:
             "selected": bundle.cards,
             "clusters": [cluster.to_dict() for cluster in bundle.clusters],
             "argument_bundle": bundle.to_dict(),
+            "timings": timings,
         }
 
     def _lookup(
@@ -250,6 +330,27 @@ def _normalize_sqlite_rows(rows: list[dict[str, object]]) -> list[dict[str, Any]
         item["card_id"] = item.get("id") or item.get("card_id")
         normalized.append(item)
     return normalized
+
+
+def _search_vector_store(
+    store,
+    search_text: str,
+    query_embedding: list[float],
+    embedder: Embedder,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if hasattr(store, "search_by_embedding"):
+        return store.search_by_embedding(query_embedding, limit)
+    return store.search(search_text, embedder, limit)
+
+
+def _elapsed_ms(started: float) -> float:
+    return (time.perf_counter() - started) * 1000
+
+
+def _accounted_ms(timings: dict[str, float]) -> float:
+    excluded = {"total", "accounted", "unaccounted"}
+    return sum(value for key, value in timings.items() if key not in excluded)
 
 
 def _normalize_lookup_rows(
