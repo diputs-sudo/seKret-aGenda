@@ -124,6 +124,7 @@ def search_author_citation_cards(
             evidence_cards.card_name,
             evidence_cards.argument_name,
             evidence_cards.side,
+            evidence_cards.metadata_json,
             evidence_cards.source_path,
             citations.author,
             citations.year,
@@ -159,6 +160,7 @@ def lookup_author_cards(
             evidence_cards.card_name,
             evidence_cards.argument_name,
             evidence_cards.side,
+            evidence_cards.metadata_json,
             evidence_cards.source_path,
             citations.author,
             citations.year,
@@ -211,6 +213,7 @@ def lookup_citation_cards(
             evidence_cards.card_name,
             evidence_cards.argument_name,
             evidence_cards.side,
+            evidence_cards.metadata_json,
             evidence_cards.source_path,
             citations.author,
             citations.year,
@@ -249,6 +252,7 @@ def lookup_citation_cards(
             evidence_cards.card_name,
             evidence_cards.argument_name,
             evidence_cards.side,
+            evidence_cards.metadata_json,
             evidence_cards.source_path,
             citations.author,
             citations.year,
@@ -306,6 +310,7 @@ def lookup_section_cards(
             evidence_cards.card_name,
             evidence_cards.argument_name,
             evidence_cards.side,
+            evidence_cards.metadata_json,
             evidence_cards.source_path,
             citations.author,
             citations.year,
@@ -346,6 +351,7 @@ def load_cards_by_ids(
             evidence_cards.category,
             evidence_cards.topical,
             evidence_cards.side,
+            evidence_cards.metadata_json,
             evidence_cards.source_path,
             citations.raw AS citation,
             citations.author,
@@ -361,6 +367,7 @@ def load_cards_by_ids(
 
     cards = {str(row["card_id"]): dict(row) for row in rows}
     for card_id in cards:
+        cards[card_id]["metadata"] = _json_object(cards[card_id].pop("metadata_json", "{}"))
         cards[card_id]["highlights"] = card_highlights(connection, card_id)
     return cards
 
@@ -379,6 +386,7 @@ def _search_cards(
             evidence_cards.card_name,
             evidence_cards.argument_name,
             evidence_cards.side,
+            evidence_cards.metadata_json,
             evidence_cards.source_path,
             citations.author,
             citations.year,
@@ -401,6 +409,7 @@ def _format_search_row(
     connection: sqlite3.Connection, row: sqlite3.Row
 ) -> dict[str, object]:
     result = dict(row)
+    result["metadata"] = _json_object(result.pop("metadata_json", "{}"))
     result["score"] = _score_from_rank(row["rank"])
     result["highlights"] = card_highlights(connection, row["id"])
     return result
