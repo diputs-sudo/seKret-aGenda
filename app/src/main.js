@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { mockBackend } from "./services/mockBackend.js";
 import "./styles/app.css";
 
@@ -58,6 +59,16 @@ const state = {
   settingsOpen: false,
   settingsCategory: "Appearance",
   round: null,
+  roundSourcePaths: {
+    ours: "",
+    opponent: "",
+    opponentGrammar: "",
+  },
+  roundUploads: {
+    ours: null,
+    opponent: null,
+    opponentGrammar: null,
+  },
   roundView: "setup",
   roundBuildTick: 0,
   roundEvidence: [],
@@ -174,6 +185,7 @@ function saveWorkspaceSoon() {
         activeTabId: state.activeTabId,
         activeActivity: state.activeActivity,
         round: state.round,
+        roundSourcePaths: state.roundSourcePaths,
         roundView: state.roundView,
         roundEvidenceScope: state.roundEvidenceScope,
         roundEvidenceFilter: state.roundEvidenceFilter,
@@ -306,15 +318,151 @@ async function ensureRound() {
 
 async function addRoundSource(side, file) {
   const round = await ensureRound();
-  state.round = await mockBackend.addRoundSource(round, side, file);
-  state.roundView = "setup";
+  if (isTauri()) {
+    const upload = state.roundUploads[side] || (file ? await uploadFromFile(file) : null);
+    const grammarUpload = state.roundUploads.opponentGrammar;
+    const sourcePath = upload?.path || sourcePathFromFile(file) || (!upload?.text ? state.roundSourcePaths[side]?.trim() : "");
+    const sourceText = upload?.text || "";
+    if (!sourcePath && !sourceText) {
+      flashStatus("Choose or drop a source file first.");
+      return;
+    }
+    if (side === "opponent" && !grammarUpload?.text && !grammarUpload?.path && !state.roundSourcePaths.opponentGrammar.trim()) {
+      flashStatus("Choose or drop the opponent .sa grammar too.");
+      return;
+    }
+    const source = await call("import_round_source", {
+      request: {
+        side,
+        roundId: round.id,
+        sourcePath,
+        sourceName: upload?.name || file?.name || "",
+        sourceText,
+        grammarPath: side === "opponent" ? grammarUpload?.path || (!grammarUpload?.text ? state.roundSourcePaths.opponentGrammar.trim() : "") : "",
+        grammarName: side === "opponent" ? grammarUpload?.name || "" : "",
+        grammarText: side === "opponent" ? grammarUpload?.text || "" : "",
+      },
+    });
+    state.round = {
+      ...round,
+      status: "configuring",
+      sources: [...round.sources.filter((existing) => existing.side !== side), source],
+    };
+    let nextView = "setup";
+    if (source.status === "ready") {
+      state.round.status = "ready";
+      nextView = "evidence";
+      await refreshRoundEvidence(false);
+    }
+    flashStatus(side === "opponent" ? `Imported ${source.cardCount} opponent cards.` : "Source registered.");
+    state.roundView = nextView;
+  } else {
+    state.round = await mockBackend.addRoundSource(round, side, file);
+    state.roundView = "setup";
+  }
   state.activeActivity = "round";
   saveWorkspaceSoon();
   render();
 }
 
+function sourcePathFromFile(file) {
+  return file?.path || file?.webkitRelativePath || "";
+}
+
+async function uploadFromFile(file) {
+  if (!file) return null;
+  const path = sourcePathFromFile(file);
+  const text = path ? "" : await file.text();
+  return {
+    name: file.name || "upload.txt",
+    path,
+    text,
+  };
+}
+
+function isGrammarUpload(fileOrPath) {
+  const name = typeof fileOrPath === "string" ? fileOrPath : fileOrPath?.name || "";
+  return name.toLowerCase().endsWith(".sa");
+}
+
+async function acceptRoundFiles(side, files) {
+  const items = Array.from(files || []);
+  if (!items.length) return;
+
+  const round = await ensureRound();
+  let sourceFile = null;
+  let sourcePath = "";
+  for (const item of items) {
+    if (isGrammarUpload(item)) {
+      if (typeof item === "string") {
+        state.roundSourcePaths.opponentGrammar = item;
+        state.roundUploads.opponentGrammar = { name: item.split(/[\\/]/).pop() || "grammar.sa", path: item, text: "" };
+      } else {
+        const upload = await uploadFromFile(item);
+        state.roundUploads.opponentGrammar = upload;
+        state.roundSourcePaths.opponentGrammar = upload.path || upload.name;
+      }
+    } else {
+      sourceFile = typeof item === "string" ? null : item;
+      sourcePath = typeof item === "string" ? item : "";
+    }
+  }
+
+  if (sourcePath) {
+    state.roundSourcePaths[side] = sourcePath;
+    state.roundUploads[side] = { name: sourcePath.split(/[\\/]/).pop() || "source.txt", path: sourcePath, text: "" };
+  } else if (sourceFile) {
+    const upload = await uploadFromFile(sourceFile);
+    state.roundUploads[side] = upload;
+    state.roundSourcePaths[side] = upload.path || upload.name;
+  }
+
+  if (side === "opponent" && (state.roundUploads.opponent || state.roundSourcePaths.opponent) && (state.roundUploads.opponentGrammar || state.roundSourcePaths.opponentGrammar)) {
+    await addRoundSource("opponent", sourceFile);
+  } else {
+    state.round = {
+      ...round,
+      sources: [
+        ...round.sources.filter((source) => source.side !== side),
+        {
+          id: `pending-${side}`,
+          filename: state.roundUploads[side]?.name || state.roundSourcePaths[side] || "Upload",
+          path: state.roundUploads[side]?.path || state.roundSourcePaths[side] || "",
+          side,
+          status: "loaded",
+          cardCount: 0,
+          parseProgress: 0,
+          indexProgress: 0,
+          error: "",
+          diagnostics: side === "opponent" ? ["Waiting for source and grammar."] : [],
+        },
+      ],
+    };
+    flashStatus(side === "opponent" ? "Opponent upload staged. Add the .sa grammar to import." : "Source staged.");
+    saveWorkspaceSoon();
+    render();
+  }
+}
+
 async function buildRound() {
   const round = await ensureRound();
+  if (isTauri()) {
+    if (!round.sources.length) {
+      flashStatus("Add at least one source first.");
+      return;
+    }
+    state.round = {
+      ...round,
+      status: "ready",
+      sources: round.sources.map((source) => ({ ...source, status: source.status === "loaded" ? "ready" : source.status })),
+    };
+    state.roundView = "evidence";
+    await refreshRoundEvidence(false);
+    flashStatus("Round ready. Evidence unlocked.");
+    saveWorkspaceSoon();
+    render();
+    return;
+  }
   if (!round.sources.some((source) => source.side === "ours") || !round.sources.some((source) => source.side === "opponent")) {
     flashStatus("Add our side and opponent files first.");
     return;
@@ -339,12 +487,21 @@ async function buildRound() {
   }, 520);
 }
 
-async function refreshRoundEvidence() {
-  state.roundEvidence = await mockBackend.listEvidence({
-    scope: state.roundEvidenceScope,
-    query: state.roundEvidenceFilter,
-  });
-  render();
+async function refreshRoundEvidence(shouldRender = true) {
+  state.roundEvidence = isTauri()
+    ? await call("list_round_evidence", {
+        query: {
+          roundId: state.round?.id || "",
+          scope: state.roundEvidenceScope,
+          query: state.roundEvidenceFilter,
+          limit: 150,
+        },
+      })
+    : await mockBackend.listEvidence({
+        scope: state.roundEvidenceScope,
+        query: state.roundEvidenceFilter,
+      });
+  if (shouldRender) render();
 }
 
 async function runRoundAsk(queryText) {
@@ -359,16 +516,37 @@ async function runRoundAsk(queryText) {
   render();
 
   try {
-    const results = await mockBackend.searchRound({
-      query: queryText,
-      scope: state.roundAsk.scope,
-      mode: state.roundAsk.mode,
-    });
-    const generated = await mockBackend.generateAnswer({
-      query: queryText,
-      evidenceIds: results.slice(0, 2).map((result) => result.card.id),
-      style: "rebuttal",
-    });
+    const results = isTauri()
+      ? (await call("list_round_evidence", {
+          query: {
+            roundId: state.round?.id || "",
+            scope: state.roundAsk.scope,
+            query: queryText,
+            limit: state.settings.searchResultCount,
+          },
+        })).map((card) => ({
+          card,
+          score: card.score || 0.45,
+          relationship: card.side === "opponent" ? "OPPONENT" : "EVIDENCE",
+          explanation: card.diagnostics?.retrieval?.join(", ") || "Matched from the local SQLite evidence DB.",
+        }))
+      : await mockBackend.searchRound({
+          query: queryText,
+          scope: state.roundAsk.scope,
+          mode: state.roundAsk.mode,
+        });
+    const generated = isTauri()
+      ? {
+          text: results.length
+            ? `Found ${results.length} local card${results.length === 1 ? "" : "s"} for this round query.`
+            : "No matching local round evidence found.",
+          sources: results.slice(0, 2).map((result) => result.card.id),
+        }
+      : await mockBackend.generateAnswer({
+          query: queryText,
+          evidenceIds: results.slice(0, 2).map((result) => result.card.id),
+          style: "rebuttal",
+        });
     state.roundAsk = {
       ...state.roundAsk,
       loading: false,
@@ -604,7 +782,7 @@ function renderRoundUnavailable(view) {
 function renderRoundSetup(round) {
   const ours = round?.sources.find((source) => source.side === "ours");
   const opponent = round?.sources.find((source) => source.side === "opponent");
-  const canBuild = Boolean(ours && opponent) && round?.status !== "building";
+  const canBuild = (isTauri() ? Boolean(ours || opponent) : Boolean(ours && opponent)) && round?.status !== "building";
   return `
     <section class="round-setup">
       <div class="source-grid">
@@ -613,7 +791,7 @@ function renderRoundSetup(round) {
       </div>
       <div class="build-actions">
         <button data-action="build-round" ${canBuild ? "" : "disabled"}>Build Round</button>
-        <span>${canBuild ? "Ready to process both files." : "Add one source for each side."}</span>
+        <span>${canBuild ? "Ready to unlock round evidence." : isTauri() ? "Add an opponent DSL source or register your side." : "Add one source for each side."}</span>
       </div>
       ${round?.status === "building" ? renderBuildProgress(round) : ""}
       ${round?.status === "ready" ? `<div class="ready-banner">Round is ready. Evidence, Ask, and Flow are unlocked.</div>` : ""}
@@ -622,26 +800,37 @@ function renderRoundSetup(round) {
 }
 
 function renderSourcePanel(side, title, source) {
+  const sourcePath = state.roundSourcePaths[side] || source?.path || "";
+  const grammarPath = state.roundSourcePaths.opponentGrammar || "";
   return `
     <article class="source-panel" data-drop-side="${side}">
       <div>
         <h2>${title}</h2>
-        <p>${source ? escapeHtml(source.filename) : "Drop DOCX here"}</p>
+        <p>${source ? escapeHtml(source.filename) : side === "opponent" ? "Drop/paste TXT plus .sa grammar" : "Drop DOCX/PDF/TXT here"}</p>
+      </div>
+      <div class="source-paths">
+        <input class="path-input" value="${escapeAttr(sourcePath)}" placeholder="/absolute/path/to/${side === "opponent" ? "opponent.txt" : "our-file.docx"}" data-source-path="${side}" />
+        ${
+          side === "opponent"
+            ? `<input class="path-input" value="${escapeAttr(grammarPath)}" placeholder="/absolute/path/to/grammar.sa" data-grammar-path="opponent" />`
+            : ""
+        }
       </div>
       <div class="source-actions">
         <label class="file-button">
           Browse
-          <input type="file" accept=".docx,.pdf,.txt" data-file-side="${side}" />
+          <input type="file" accept="${side === "opponent" ? ".txt,.sa" : ".docx,.pdf,.txt"}" data-file-side="${side}" multiple />
         </label>
+        <button data-action="import-source" data-source-side="${side}">${side === "opponent" ? "Import DSL" : "Register"}</button>
         <button data-action="mock-source" data-source-side="${side}">Use Mock</button>
       </div>
       ${
         source
           ? `<div class="source-meta">
               <span>${escapeHtml(statusLabel(source.status))}</span>
-              <span>${source.cardCount ? `${source.cardCount} cards` : "Waiting to build"}</span>
+              <span>${source.cardCount ? `${source.cardCount} cards` : source.diagnostics?.[0] ? escapeHtml(source.diagnostics[0]) : "Waiting to build"}</span>
             </div>`
-          : `<small>File picker and drag/drop use the same ingestion surface.</small>`
+          : `<small>${side === "opponent" ? "Native path imports TXT with the custom .sa DSL." : "Native import for your side is registered for now."}</small>`
       }
     </article>
   `;
@@ -1111,7 +1300,7 @@ app.addEventListener("click", (event) => {
     return;
   }
 
-  const mockSourceButton = target.closest("[data-source-side]");
+  const mockSourceButton = target.closest('[data-action="mock-source"][data-source-side]');
   if (mockSourceButton) {
     const side = mockSourceButton.dataset.sourceSide;
     addRoundSource(side, { name: side === "ours" ? "OUR_case.docx" : "OPP_case.docx" });
@@ -1141,6 +1330,7 @@ app.addEventListener("click", (event) => {
   else if (action === "close-settings") state.settingsOpen = false;
   else if (action === "new-search") openTab("search", "Evidence Search", {});
   else if (action === "open-browser") openTab("browser", "Google Docs", { url: "https://docs.google.com" });
+  else if (action === "import-source") addRoundSource(actionElement.dataset.sourceSide, null);
   else if (action === "build-round") buildRound();
   else if (action === "add-generated-flow") addGeneratedToFlow();
   else if (action === "regenerate-answer") runRoundAsk(state.roundAsk.query);
@@ -1194,6 +1384,16 @@ app.addEventListener("input", (event) => {
     clearTimeout(refreshRoundEvidence.timer);
     refreshRoundEvidence.timer = setTimeout(refreshRoundEvidence, 180);
   }
+
+  if (input.dataset.sourcePath) {
+    state.roundSourcePaths[input.dataset.sourcePath] = input.value;
+    saveWorkspaceSoon();
+  }
+
+  if (input.dataset.grammarPath === "opponent") {
+    state.roundSourcePaths.opponentGrammar = input.value;
+    saveWorkspaceSoon();
+  }
 });
 
 app.addEventListener("change", (event) => {
@@ -1201,7 +1401,7 @@ app.addEventListener("change", (event) => {
   if (!(input instanceof HTMLInputElement)) return;
 
   if (input.dataset.fileSide && input.files?.[0]) {
-    addRoundSource(input.dataset.fileSide, input.files[0]);
+    acceptRoundFiles(input.dataset.fileSide, input.files);
     return;
   }
 
@@ -1251,9 +1451,35 @@ app.addEventListener("drop", (event) => {
   if (!dropZone) return;
   event.preventDefault();
   dropZone.classList.remove("drag-over");
-  const file = event.dataTransfer?.files?.[0];
-  if (file) addRoundSource(dropZone.dataset.dropSide, file);
+  const files = event.dataTransfer?.files;
+  if (files?.length) {
+    acceptRoundFiles(dropZone.dataset.dropSide, files);
+  }
 });
+
+async function installNativeDragDrop() {
+  if (!isTauri()) return;
+  const webview = getCurrentWebview();
+  await webview.onDragDropEvent((event) => {
+    if (event.payload.type === "over") {
+      const side = sideFromDropPosition(event.payload.position);
+      document.querySelectorAll("[data-drop-side]").forEach((zone) => {
+        zone.classList.toggle("drag-over", zone.dataset.dropSide === side);
+      });
+      return;
+    }
+    document.querySelectorAll("[data-drop-side]").forEach((zone) => zone.classList.remove("drag-over"));
+    if (event.payload.type !== "drop") return;
+    const side = sideFromDropPosition(event.payload.position);
+    if (!side) return;
+    acceptRoundFiles(side, event.payload.paths || []);
+  });
+}
+
+function sideFromDropPosition(position) {
+  const element = document.elementFromPoint(position?.x || 0, position?.y || 0);
+  return element?.closest?.("[data-drop-side]")?.dataset.dropSide || "";
+}
 
 async function saveSettings() {
   await call("save_settings", { settings: state.settings }).catch(console.error);
@@ -1352,6 +1578,7 @@ async function bootstrap() {
     }
     state.activeActivity = ACTIVITY_IDS.includes(workspace.activeActivity) ? workspace.activeActivity : state.activeActivity;
     state.round = workspace.round || state.round;
+    state.roundSourcePaths = { ...state.roundSourcePaths, ...(workspace.roundSourcePaths || {}) };
     state.roundView = workspace.roundView || state.roundView;
     state.roundEvidenceScope = workspace.roundEvidenceScope || state.roundEvidenceScope;
     state.roundEvidenceFilter = workspace.roundEvidenceFilter || state.roundEvidenceFilter;
@@ -1364,8 +1591,9 @@ async function bootstrap() {
     state.activeActivity = "round";
   }
   await ensureRound();
+  await installNativeDragDrop().catch(console.error);
   if (state.round?.status === "ready") {
-    state.roundEvidence = await mockBackend.listEvidence({ scope: state.roundEvidenceScope, query: state.roundEvidenceFilter });
+    await refreshRoundEvidence(false);
   }
   render();
   if (activeTab()?.type === "search") runSearch(activeTab()?.state?.query || "");
