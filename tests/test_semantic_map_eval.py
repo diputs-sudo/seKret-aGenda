@@ -47,6 +47,17 @@ def test_expected_direction_maps_to_explicit_endpoints() -> None:
     ) == (None, None)
 
 
+def test_exhaustive_pairs_cover_each_unordered_pair_once() -> None:
+    arguments = [{"id": argument_id} for argument_id in ("A", "B", "C", "D")]
+    pairs = EVAL.exhaustive_pairs(arguments)
+    assert len(pairs) == 6
+    assert len({EVAL.pair_key(left, right) for left, right in pairs}) == 6
+    assert set(pairs) == {
+        ("A", "B"), ("A", "C"), ("A", "D"),
+        ("B", "C"), ("B", "D"), ("C", "D"),
+    }
+
+
 def test_worker_preserves_right_to_left_support_edge() -> None:
     worker = WORKER.Worker(
         "ollama", "embed", "relation", "normalization", "http://example.invalid", Path("/tmp/unused-semantic-cache.json"), True
