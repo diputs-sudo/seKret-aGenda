@@ -26,6 +26,24 @@ public:
     CandidateAssessment assess(const QueryIntent& intent, const RetrievedCard& card) const;
 };
 
+// Mirrors the Python reference RelevanceReranker. It intentionally considers
+// only query terms plus a card's section, tag, and human highlights. This is
+// the default production query scorer; parsing full card bodies and mechanisms
+// belongs to explicit analysis mode.
+class LightweightRelevanceReranker {
+public:
+    explicit LightweightRelevanceReranker(double threshold = 2.0);
+
+    std::vector<RerankedCard> rerank(
+        const std::string& query,
+        const std::vector<RetrievedCard>& cards,
+        std::size_t limit = 3
+    ) const;
+
+private:
+    double threshold_;
+};
+
 std::string reranker_input(const QueryIntent& intent, const RetrievedCard& card);
 
 } // namespace sekret::hybrid
