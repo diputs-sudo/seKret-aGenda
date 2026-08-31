@@ -503,6 +503,47 @@ sekret::hybrid::RetrievedCard make_card(
     return card;
 }
 
+int test_lightweight_reranker_matches_python_contract() {
+    const std::vector<sekret::hybrid::RetrievedCard> cards = {
+        make_card(
+            "highlight-match",
+            "State regulation",
+            "Illegal betting declines",
+            "Merrefield 25",
+            "State enforcement reduces illegal betting.",
+            "This body should not affect lightweight scoring.",
+            0.5
+        ),
+        make_card(
+            "body-only-match",
+            "Miscellaneous",
+            "Different claim",
+            "Capital 25",
+            "Unrelated highlight.",
+            "State regulation reduces illegal betting.",
+            0.9
+        ),
+    };
+
+    const auto reranked = sekret::hybrid::LightweightRelevanceReranker().rerank(
+        "state regulation reduces illegal betting",
+        cards,
+        3
+    );
+
+    int failures = 0;
+    failures += expect(reranked.size() == 1, "expected lightweight scorer to ignore body-only matches");
+    failures += expect(
+        !reranked.empty() && reranked.front().card.card_id == "highlight-match",
+        "expected tag/section/highlight match to survive lightweight reranking"
+    );
+    failures += expect(
+        !reranked.empty() && reranked.front().assessment.relevance_score > 2.0,
+        "expected lightweight scorer to expose its lexical relevance score"
+    );
+    return failures;
+}
+
 int test_reranker_gate_and_argument_builder() {
     const auto intent = sekret::hybrid::parse_query_intent(
         "Opponent says AI escalates because of automation."
@@ -566,6 +607,7 @@ int main() {
     failures += test_native_sqlite_vector_store_searches_cached_vectors();
     failures += test_format_parser_extracts_dsl_cards();
     failures += test_round_import_writes_opponent_cards_to_sqlite();
+    failures += test_lightweight_reranker_matches_python_contract();
     failures += test_reranker_gate_and_argument_builder();
 
     if (failures != 0) {
