@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import math
 import os
@@ -101,6 +102,19 @@ def rank_arguments(arguments: list[dict[str, Any]], embeddings: dict[str, list[f
     return rankings
 
 
+def pair_key(left_id: str, right_id: str) -> tuple[str, str]:
+    """Give each unordered argument pair one stable identity."""
+    return tuple(sorted((left_id, right_id)))
+
+
+def exhaustive_pairs(arguments: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Return every unordered argument pair exactly once."""
+    return [
+        (left["id"], right["id"])
+        for left, right in itertools.combinations(arguments, 2)
+    ]
+
+
 def elapsed_ms(started: float) -> float:
     return (time.perf_counter() - started) * 1000
 
@@ -179,6 +193,7 @@ def evaluate(
     relation_model: str,
     normalization_model: str,
     representation: str,
+    candidate_mode: str,
     no_cache: bool,
     document_loading_ms: float,
 ) -> dict[str, Any]:
@@ -251,22 +266,38 @@ def evaluate(
         retrieval_ms = elapsed_ms(retrieval_started)
 
         relationship_started = time.perf_counter()
-        predictions = []
-        for relation in dataset["relationships"]:
-            left, right = relation["left"], relation["right"]
+        pair_results: dict[tuple[str, str], dict[str, Any]] = {}
+
+        def classify_pair(left_id: str, right_id: str) -> dict[str, Any]:
+            key = pair_key(left_id, right_id)
+            if key in pair_results:
+                return pair_results[key]
             response = worker.request({
                 "op": "relationship",
                 "left": {
-                    "id": left,
-                    "original_text": by_id[left]["text"],
-                    "normalized_text": views[left]["normalized"],
+                    "id": left_id,
+                    "original_text": by_id[left_id]["text"],
+                    "normalized_text": views[left_id]["normalized"],
                 },
                 "right": {
-                    "id": right,
-                    "original_text": by_id[right]["text"],
-                    "normalized_text": views[right]["normalized"],
+                    "id": right_id,
+                    "original_text": by_id[right_id]["text"],
+                    "normalized_text": views[right_id]["normalized"],
                 },
             })
+            pair_results[key] = response
+            return response
+
+        # Trust Mode deliberately removes embedding filtering. It is the
+        # reference graph against which fast retrieval can later be compared.
+        candidate_pairs = exhaustive_pairs(arguments) if candidate_mode == "exhaustive" else []
+        for left_id, right_id in candidate_pairs:
+            classify_pair(left_id, right_id)
+
+        predictions = []
+        for relation in dataset["relationships"]:
+            left, right = relation["left"], relation["right"]
+            response = classify_pair(left, right)
             expected_source, expected_target = expected_endpoints(relation)
             status = response.get("status", "INVALID_SCHEMA")
             source = response.get("source_argument")
@@ -308,19 +339,7 @@ def evaluate(
             had_pipeline_error = False
             for candidate in [item for item in rankings[novel_id] if item["id"] in known_ids][:5]:
                 candidate_id = candidate["id"]
-                response = worker.request({
-                    "op": "relationship",
-                    "left": {
-                        "id": novel_id,
-                        "original_text": by_id[novel_id]["text"],
-                        "normalized_text": views[novel_id]["normalized"],
-                    },
-                    "right": {
-                        "id": candidate_id,
-                        "original_text": by_id[candidate_id]["text"],
-                        "normalized_text": views[candidate_id]["normalized"],
-                    },
-                })
+                response = classify_pair(novel_id, candidate_id)
                 status = response.get("status", "INVALID_SCHEMA")
                 had_pipeline_error |= status != "OK"
                 relationship = response.get("relationship")
@@ -337,6 +356,34 @@ def evaluate(
                 "id": novel_id, "predictedNew": predicted_new,
                 "expectedNew": True, "candidates": inspected,
             })
+        valid_pair_results = [result for result in pair_results.values() if result.get("status") == "OK"]
+        materialized_relationships = {"SAME_ARGUMENT", "SUPPORTS", "ATTACKS"}
+        materialized_pairs = [
+            result for result in valid_pair_results
+            if result.get("relationship") in materialized_relationships
+        ]
+        expected_pair_keys = {
+            pair_key(relation["left"], relation["right"])
+            for relation in dataset["relationships"]
+        }
+        graph = {
+            "allPossiblePairs": len(exhaustive_pairs(arguments)),
+            "candidatePairs": len(candidate_pairs) if candidate_mode == "exhaustive" else None,
+            "classifiedPairs": len(pair_results),
+            "validClassifications": len(valid_pair_results),
+            "materializedEdges": len(materialized_pairs),
+            "sameArgumentEdges": sum(result.get("relationship") == "SAME_ARGUMENT" for result in materialized_pairs),
+            "directedEdges": sum(result.get("relationship") in DIRECTIONAL for result in materialized_pairs),
+            "relatedPairs": sum(result.get("relationship") == "RELATED" for result in valid_pair_results),
+            "unrelatedPairs": sum(result.get("relationship") == "UNRELATED" for result in valid_pair_results),
+            "expectedRelations": len(predictions),
+            "expectedRelationsFound": sum(bool(prediction["fullEdgeCorrect"]) for prediction in predictions),
+            "unreviewedMaterializedEdges": sum(
+                pair_key(left_id, right_id) not in expected_pair_keys
+                and result.get("relationship") in materialized_relationships
+                for (left_id, right_id), result in pair_results.items()
+            ),
+        }
         relationship_ms = elapsed_ms(relationship_started)
 
         stats = worker.request({"op": "stats"})
@@ -375,6 +422,7 @@ def evaluate(
             "normalizationModel": normalization_model,
             "relationshipModel": relation_model,
             "representation": representation,
+            "candidateMode": candidate_mode,
             "arguments": len(arguments),
             "argumentViews": list(views.values()),
             "normalization": {
@@ -383,6 +431,7 @@ def evaluate(
                 "manualReviewLabels": dict(normalization_review_counts),
             },
             "retrieval": {"metrics": retrieval_metrics, "details": retrieval_details},
+            "graph": graph,
             "relationship": {
                 "classAccuracy": sum(bool(p["classCorrect"]) for p in valid_predictions) / len(valid_predictions) if valid_predictions else 0.0,
                 "directionalAccuracy": sum(bool(p["directionCorrect"]) for p in directional_predictions) / len(directional_predictions) if directional_predictions else 0.0,
@@ -431,6 +480,14 @@ def print_summary(report: dict[str, Any]) -> None:
     print(f"Representation:       {report['representation']}")
     print(f"Normalization model:  {report['normalizationModel']}")
     print(f"Relationship model:   {report['relationshipModel']}\n")
+    graph = report["graph"]
+    print(SUBRULE + "\nCANDIDATE GENERATION\n" + SUBRULE + "\n")
+    print(f"Mode:                 {report['candidateMode']}")
+    print(f"All unique pairs:     {graph['allPossiblePairs']}")
+    if graph["candidatePairs"] is not None:
+        print(f"Candidate pairs:      {graph['candidatePairs']}")
+    print(f"Classified pairs:     {graph['classifiedPairs']}")
+
     print(SUBRULE + "\nRETRIEVAL\n" + SUBRULE + "\n")
     for key, value in report["retrieval"]["metrics"].items():
         print(f"Recall@{key.rsplit('_', 1)[-1]:<2}    {value * 100:5.1f}%")
@@ -461,6 +518,15 @@ def print_summary(report: dict[str, Any]) -> None:
     print(f"\n{'Class':<18} {'Precision':>10} {'Recall':>10}\n{SUBRULE}")
     for label, scores in relationship["perClass"].items():
         print(f"{label:<18} {scores['precision'] * 100:9.1f}% {scores['recall'] * 100:9.1f}%")
+    print("\n" + SUBRULE + "\nARGUMENT GRAPH\n" + SUBRULE + "\n")
+    print(f"Expected relations found:   {graph['expectedRelationsFound']} / {graph['expectedRelations']}")
+    print(f"Materialized edges:         {graph['materializedEdges']}")
+    print(f"SAME_ARGUMENT edges:        {graph['sameArgumentEdges']}")
+    print(f"Directed SUPPORT/ATTACK:    {graph['directedEdges']}")
+    print(f"RELATED pairs (not edges):  {graph['relatedPairs']}")
+    print(f"UNRELATED pairs:            {graph['unrelatedPairs']}")
+    if report["candidateMode"] == "exhaustive":
+        print(f"Unreviewed graph edges:     {graph['unreviewedMaterializedEdges']}")
     print("\n" + SUBRULE + "\nNOVELTY\n" + SUBRULE + "\n")
     novelty = report["novelty"]
     print(f"Accuracy: {novelty['accuracy'] * 100:.1f}%")
@@ -645,6 +711,7 @@ def main() -> int:
     parser.add_argument("--relation-model", default=os.environ.get("SEMANTIC_RELATION_MODEL", "gemma3:4b"))
     parser.add_argument("--normalization-model")
     parser.add_argument("--representation", choices=["raw", "normalized"], default="raw")
+    parser.add_argument("--candidate-mode", choices=["retrieval", "exhaustive"], default="retrieval")
     parser.add_argument("--errors", action="store_true", help="show relationship failures and retrieval near-misses")
     parser.add_argument("--retrieval-details", action="store_true", help="show ranked candidates for every retrieval query")
     parser.add_argument("--show-normalizations", action="store_true")
@@ -666,8 +733,8 @@ def main() -> int:
         dataset = json.loads(args.dataset.read_text())
         document_loading_ms = elapsed_ms(loading_started)
         if args.compare_representations:
-            raw = evaluate(dataset, args.backend, args.embedding_model, args.relation_model, normalization_model, "raw", args.no_cache, document_loading_ms)
-            normalized = evaluate(dataset, args.backend, args.embedding_model, args.relation_model, normalization_model, "normalized", args.no_cache, document_loading_ms)
+            raw = evaluate(dataset, args.backend, args.embedding_model, args.relation_model, normalization_model, "raw", args.candidate_mode, args.no_cache, document_loading_ms)
+            normalized = evaluate(dataset, args.backend, args.embedding_model, args.relation_model, normalization_model, "normalized", args.candidate_mode, args.no_cache, document_loading_ms)
             combined = {"raw": raw, "normalized": normalized}
             if args.json:
                 print(json.dumps(combined, indent=2))
@@ -676,7 +743,7 @@ def main() -> int:
             if args.json_out:
                 args.json_out.write_text(json.dumps(combined, indent=2) + "\n")
             return 0
-        report = evaluate(dataset, args.backend, args.embedding_model, args.relation_model, normalization_model, args.representation, args.no_cache, document_loading_ms)
+        report = evaluate(dataset, args.backend, args.embedding_model, args.relation_model, normalization_model, args.representation, args.candidate_mode, args.no_cache, document_loading_ms)
     except (OSError, json.JSONDecodeError, RuntimeError, ValueError) as error:
         print(f"semantic map evaluation failed: {error}", file=sys.stderr)
         return 1
