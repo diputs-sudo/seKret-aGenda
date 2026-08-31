@@ -8,6 +8,7 @@
 #include "vector_store.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
@@ -168,8 +169,28 @@ std::string response_to_json(const HybridSearchResponse& response) {
     } else {
         output << "null";
     }
+    output << ",\"timings\":{";
+    for (std::size_t index = 0; index < response.timings.size(); ++index) {
+        if (index != 0) {
+            output << ",";
+        }
+        output << "\"" << json_escape(response.timings[index].first) << "\":"
+               << response.timings[index].second;
+    }
+    output << "}";
     output << "}";
     return output.str();
+}
+
+using Clock = std::chrono::steady_clock;
+
+void add_timing(
+    std::vector<std::pair<std::string, double>>& timings,
+    const std::string& stage,
+    const Clock::time_point& started
+) {
+    const auto elapsed = Clock::now() - started;
+    timings.push_back({stage, std::chrono::duration<double, std::milli>(elapsed).count()});
 }
 
 std::string lower_copy(const std::string& text) {
@@ -259,6 +280,11 @@ HybridSearchRequest request_from_json_or_text(const std::string& request_json) {
             include_diagnostics = json_bool_field(request_json, "include_diagnostics");
         }
         request.include_diagnostics = include_diagnostics.value_or(false);
+        auto analysis_mode = json_bool_field(request_json, "analysisMode");
+        if (!analysis_mode.has_value()) {
+            analysis_mode = json_bool_field(request_json, "analysis_mode");
+        }
+        request.analysis_mode = analysis_mode.value_or(false);
     } else {
         request.query = request_json;
     }
@@ -435,25 +461,36 @@ void add_vector_sources_if_available(
     SourceResults& sources,
     const HybridEngineOptions& options,
     const std::string& query_text,
-    const HybridSearchRequest& request
+    const HybridSearchRequest& request,
+    std::vector<std::pair<std::string, double>>& timings
 ) {
+    const auto availability_started = Clock::now();
     const OllamaEmbedder embedder;
     NativeSqliteVectorStore store(options.db_path);
     const bool has_fast = store.has_vectors(kFastVectorKind, embedder.model());
     const bool has_deep = store.has_vectors(kDeepVectorKind, embedder.model());
+    add_timing(timings, "vector availability", availability_started);
     if (!has_fast && !has_deep) {
         sources["fast_vector"] = {};
         sources["deep_vector"] = {};
         return;
     }
 
+    const auto embedding_started = Clock::now();
     const auto query_embedding = embedder.embed(query_text);
+    add_timing(timings, "query embedding", embedding_started);
+
+    const auto fast_search_started = Clock::now();
     sources["fast_vector"] = has_fast
         ? store.search(query_embedding, kFastVectorKind, embedder.model(), request.vector_limit)
         : std::vector<RetrievedCard>{};
+    add_timing(timings, "fast vector search", fast_search_started);
+
+    const auto deep_search_started = Clock::now();
     sources["deep_vector"] = has_deep
         ? store.search(query_embedding, kDeepVectorKind, embedder.model(), request.vector_limit)
         : std::vector<RetrievedCard>{};
+    add_timing(timings, "deep vector search", deep_search_started);
 }
 
 std::vector<RetrievedCard> expand_cards(
@@ -496,17 +533,28 @@ public:
     }
 
     HybridSearchResponse search(const HybridSearchRequest& request) const {
+        const auto overall_started = Clock::now();
+        std::vector<std::pair<std::string, double>> timings;
+        const auto parse_started = Clock::now();
         const auto intent = parse_query_intent(request.query, request.mode);
+        add_timing(timings, "query parse", parse_started);
         const auto limit = static_cast<std::size_t>(intent.requested_count.value_or(static_cast<int>(request.limit)));
 
         std::vector<RerankedCard> selected;
+        const auto direct_lookup_started = Clock::now();
         if (auto lookup = direct_lookup(options_, intent, request); lookup.has_value()) {
+            add_timing(timings, "direct lookup", direct_lookup_started);
             selected = std::move(*lookup);
         } else {
+            add_timing(timings, "direct lookup", direct_lookup_started);
             SourceResults sources;
             const auto text = retrieval_text(intent);
-            add_vector_sources_if_available(sources, options_, text, request);
+            add_vector_sources_if_available(sources, options_, text, request, timings);
+
+            const auto sqlite_fts_started = Clock::now();
             sources["sqlite_fts"] = search_cards(options_.db_path, text, request.lexical_limit);
+            add_timing(timings, "SQLite FTS", sqlite_fts_started);
+            const auto citation_started = Clock::now();
             if (auto citation_query = citation_lookup_query(intent); citation_query.has_value()) {
                 sources["author_citation"] = search_author_citation_cards(
                     options_.db_path,
@@ -516,38 +564,74 @@ public:
             } else {
                 sources["author_citation"] = {};
             }
+            add_timing(timings, "citation lookup", citation_started);
 
-            auto fused = expand_cards(options_, reciprocal_rank_fusion(sources));
+            const auto fusion_started = Clock::now();
+            auto fused = reciprocal_rank_fusion(sources);
+            add_timing(timings, "reciprocal-rank fusion", fusion_started);
+
+            const auto hydration_started = Clock::now();
+            fused = expand_cards(options_, std::move(fused));
+            add_timing(timings, "SQLite hydration", hydration_started);
+
+            const auto filter_started = Clock::now();
             std::vector<RetrievedCard> filtered;
             for (const auto& card : fused) {
                 if (card_matches_filters(card, intent)) {
                     filtered.push_back(card);
                 }
             }
+            add_timing(timings, "filters", filter_started);
 
-            auto reranked = FullContextReranker().rerank(intent, filtered);
-            if (intent.search_mode == SearchMode::Argument) {
-                std::vector<CandidateAssessment> assessments;
-                for (const auto& row : reranked) {
-                    assessments.push_back(row.assessment);
-                }
-                const auto gate = split_by_relevance_gate(assessments);
-                for (const auto index : gate.accepted_indexes) {
-                    selected.push_back(reranked[index]);
-                }
+            const auto rerank_started = Clock::now();
+            if (!request.analysis_mode) {
+                selected = LightweightRelevanceReranker().rerank(text, filtered, limit);
+                add_timing(timings, "lightweight rerank", rerank_started);
             } else {
-                selected = general_accept(reranked);
+                auto reranked = FullContextReranker().rerank(intent, filtered);
+                add_timing(timings, "full-context rerank", rerank_started);
+                const auto gate_started = Clock::now();
+                if (intent.search_mode == SearchMode::Argument) {
+                    std::vector<CandidateAssessment> assessments;
+                    for (const auto& row : reranked) {
+                        assessments.push_back(row.assessment);
+                    }
+                    const auto gate = split_by_relevance_gate(assessments);
+                    for (const auto index : gate.accepted_indexes) {
+                        selected.push_back(reranked[index]);
+                    }
+                } else {
+                    selected = general_accept(reranked);
+                }
+                add_timing(timings, "relevance gate", gate_started);
             }
         }
 
-        const auto bundle = ArgumentBuilder().build(intent, selected, limit);
         HybridSearchResponse response;
-        response.source_status = bundle.source_status;
-        response.main_claim = bundle.main_claim;
-        response.uncertainty = bundle.uncertainty;
-        for (const auto& card : bundle.cards) {
-            response.cards.push_back(to_evidence_card(card, intent, request.include_diagnostics));
+        if (request.analysis_mode) {
+            const auto bundle_started = Clock::now();
+            const auto bundle = ArgumentBuilder().build(intent, selected, limit);
+            add_timing(timings, "argument clustering and bundles", bundle_started);
+            response.source_status = bundle.source_status;
+            response.main_claim = bundle.main_claim;
+            response.uncertainty = bundle.uncertainty;
+            for (const auto& card : bundle.cards) {
+                response.cards.push_back(to_evidence_card(card, intent, request.include_diagnostics));
+            }
+        } else {
+            response.source_status = selected.empty() ? "ANALYSIS ONLY" : "BACKFILE-SOURCED";
+            response.main_claim = selected.empty()
+                ? "No backfile evidence passed the lightweight relevance gate."
+                : selected.front().card.tag;
+            if (selected.empty()) {
+                response.uncertainty = "No retrieved cards passed the lightweight relevance gate.";
+            }
+            for (const auto& card : selected) {
+                response.cards.push_back(to_evidence_card(card, intent, request.include_diagnostics));
+            }
         }
+        add_timing(timings, "total", overall_started);
+        response.timings = std::move(timings);
         return response;
     }
 
