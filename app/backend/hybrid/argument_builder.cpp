@@ -21,7 +21,29 @@ double card_score(const RerankedCard& card) {
     return card.card.retrieval_score;
 }
 
+using CardTermCache = std::map<std::string, std::set<std::string>>;
+
+CardTermCache& card_term_cache() {
+    static thread_local CardTermCache cache;
+    return cache;
+}
+
+void clear_card_term_cache() {
+    card_term_cache().clear();
+}
+
 std::set<std::string> card_terms(const RerankedCard& card) {
+    // Clustering and MMR compare the same cards repeatedly. Parsing a whole
+    // card body for each comparison becomes quadratic on a real case, so keep
+    // the derived deterministic terms for this search request.
+    auto& cache = card_term_cache();
+    const auto key = card.card.card_id.empty() ? card.card.id : card.card.card_id;
+    if (!key.empty()) {
+        const auto found = cache.find(key);
+        if (found != cache.end()) {
+            return found->second;
+        }
+    }
     std::ostringstream text;
     text << card.card.section << ' ' << card.card.tag << ' ' << highlight_text(card.card)
          << ' ' << (card.card.body.empty() ? card.card.body_preview : card.card.body);
@@ -29,6 +51,9 @@ std::set<std::string> card_terms(const RerankedCard& card) {
     auto values = terms(text.str());
     values.insert(mechanism.object_groups.begin(), mechanism.object_groups.end());
     values.insert(mechanism.phrase_concepts.begin(), mechanism.phrase_concepts.end());
+    if (!key.empty()) {
+        cache[key] = values;
+    }
     return values;
 }
 
@@ -223,6 +248,7 @@ ArgumentBundle ArgumentBuilder::build(
     const std::vector<RerankedCard>& cards,
     std::size_t limit
 ) const {
+    clear_card_term_cache();
     auto clusters = cluster_arguments(cards, &intent);
     auto selected = select_diverse_cards(clusters, limit);
     auto bundle_warrants = warrants(selected);
