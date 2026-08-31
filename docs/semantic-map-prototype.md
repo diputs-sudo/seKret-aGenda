@@ -98,6 +98,8 @@ Useful investigation modes:
 
 ```bash
 scripts/eval_semantic_map.sh --backend ollama --representation normalized --errors
+# Trust Mode: classify every unordered argument pair as the correctness reference
+scripts/eval_semantic_map.sh --backend ollama --representation normalized --candidate-mode exhaustive --errors
 scripts/eval_semantic_map.sh --backend ollama --representation normalized --retrieval-details
 scripts/eval_semantic_map.sh --backend ollama --representation normalized --show-normalizations
 scripts/eval_semantic_map.sh --backend ollama --representation normalized --verbose
