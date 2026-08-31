@@ -10,3 +10,4 @@ app/build/
 app/dist/
 app/node_modules/
 app/src-tauri/target/
+backups/
