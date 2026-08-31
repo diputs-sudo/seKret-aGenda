@@ -1,0 +1,77 @@
+============================================================
+SEMANTIC MAP EVALUATION
+============================================================
+
+Dataset:              adversarial-v1
+Arguments:            24
+Embedding backend:    ollama
+Embedding model:      nomic-embed-text
+Representation:       normalized
+Normalization model:  gemma3:4b
+Relationship model:   gemma3:4b
+
+------------------------------------------------------------
+RETRIEVAL
+------------------------------------------------------------
+
+Recall@1      30.4%
+Recall@3      43.5%
+Recall@5      65.2%
+Recall@10    100.0%
+
+------------------------------------------------------------
+NORMALIZATION FIDELITY
+------------------------------------------------------------
+
+Potential fidelity review flags: 1
+JURISDICTION_DROPPED_OR_CHANGED:     0
+NEGATION_MAY_BE_DROPPED:             0
+DEPENDENCY_DIRECTION_REVIEW:         0
+QUALIFIER_OR_CONDITION_REVIEW:       1
+COMPOUND_CLAUSE_REVIEW:              0
+Human-labeled normalizations:            0
+
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+------------------------------------------------------------
+
+Class accuracy:       64.3%
+Directional accuracy: 75.0%
+Full edge accuracy:   57.1%
+Schema-valid rate:    100.0%
+Parse-success rate:   100.0%
+Valid predictions:    14
+
+Class               Precision     Recall
+------------------------------------------------------------
+ATTACKS                100.0%      66.7%
+RELATED                 50.0%      33.3%
+SAME_ARGUMENT           80.0%      80.0%
+SUPPORTS                66.7%      66.7%
+
+------------------------------------------------------------
+NOVELTY
+------------------------------------------------------------
+
+Accuracy: 100.0%
+
+============================================================
+
+============================================================
+PERFORMANCE
+============================================================
+
+Document loading:              0.10 ms
+Normalization:                51.63 ms
+Embedding:                     4.73 ms
+Retrieval:                    24.96 ms
+Relationship inference:        0.83 ms
+Evaluation:                    2.18 ms
+Total:                        84.33 ms
+
+AI calls / cache
+------------------------------------------------------------
+Normalization:    24 requests |  24 cached |   0 generated
+Embeddings:        1 requests |  24 cached |   0 generated
+Relationships:    19 requests |  19 cached |   0 generated
+============================================================
