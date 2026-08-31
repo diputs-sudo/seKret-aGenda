@@ -768,7 +768,10 @@ function render() {
 function renderTopbar() {
   return `
     <header class="topbar">
-      <div class="brand">Secret Agenda</div>
+      <div class="brand" aria-label="Secret Agenda">
+        <span class="brand-mark">S</span>
+        <span class="brand-copy"><strong>Secret Agenda</strong><small>Debate workspace</small></span>
+      </div>
       <button class="workspace-button">${escapeHtml(state.workspaceName)} ▾</button>
       <button class="command-button" data-action="open-command">${shortcutLabel("K")}</button>
       <button class="ghost-button" data-action="open-settings">Settings</button>
@@ -810,7 +813,10 @@ function renderSidebar() {
   }[state.activeActivity];
   return `
     <aside class="sidebar">
-      <h2>${title}</h2>
+      <div class="sidebar-heading">
+        <p>Workspace</p>
+        <h2>${title}</h2>
+      </div>
       ${state.activeActivity === "tools" ? renderToolsSidebar() : ""}
       ${state.activeActivity === "search" ? `<button class="wide-button" data-action="new-search">New Evidence Search</button>` : ""}
       ${state.activeActivity === "web" ? `<button class="wide-button" data-action="open-browser">Open Google Docs</button>` : ""}
@@ -995,6 +1001,14 @@ function renderRoundSetup(round) {
   const canBuild = (isTauri() ? Boolean(ours || opponent) : Boolean(ours && opponent)) && round?.status !== "building";
   return `
     <section class="round-setup">
+      <div class="setup-intro">
+        <div>
+          <p class="eyebrow">Round preparation</p>
+          <h2>Build a two-sided evidence set</h2>
+          <p>Import each side, then index the round for search, argument flow, and drafting.</p>
+        </div>
+        <span class="setup-step">01 / 02</span>
+      </div>
       <div class="source-grid">
         ${renderSourcePanel("ours", "Your Side", ours)}
         ${renderSourcePanel("opponent", "Opponent", opponent)}
@@ -1014,7 +1028,8 @@ function renderSourcePanel(side, title, source) {
   const grammarPath = state.roundSourcePaths.opponentGrammar || "";
   return `
     <article class="source-panel" data-drop-side="${side}">
-      <div>
+      <div class="source-panel-heading">
+        <span class="side-label ${side}">${side === "ours" ? "Your evidence" : "Opponent evidence"}</span>
         <h2>${title}</h2>
         <p>${source ? escapeHtml(source.filename) : side === "opponent" ? "Drop DOCX and edit the .sa grammar below" : "Drop DOCX/PDF/TXT here"}</p>
       </div>
@@ -1238,6 +1253,13 @@ function renderSearchView(tabState = {}) {
   const query = state.search.query || tabState.query || "";
   return `
     <section class="view search-view">
+      <header class="search-heading">
+        <div>
+          <p class="eyebrow">Evidence retrieval</p>
+          <h1>Find the card you need</h1>
+        </div>
+        <p>Search your backfile with natural language or an exact citation.</p>
+      </header>
       <form class="search-input" data-form="search">
         <span>Search</span>
         <input name="query" value="${escapeAttr(query)}" placeholder="AI sports betting addiction" />
@@ -1283,6 +1305,7 @@ function renderEvidenceView(card) {
     <section class="view evidence-view">
       <article class="evidence-header">
         <div>
+          <p class="eyebrow">Evidence card</p>
           <h1>${escapeHtml(card.title || card.citation || "Evidence Card")}</h1>
           <p class="evidence-tag">${escapeHtml(card.tag || "")}</p>
           <p class="citation">${escapeHtml(card.citation || "")}</p>
