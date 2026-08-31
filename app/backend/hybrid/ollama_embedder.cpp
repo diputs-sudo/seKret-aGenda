@@ -228,7 +228,11 @@ std::string post_json(const ParsedUrl& url, const std::string& path, const std::
     auto status_line_end = response.find("\r\n");
     auto status_line = response.substr(0, status_line_end);
     if (status_line.find(" 200 ") == std::string::npos) {
-        throw EmbeddingError("Ollama embedding request failed: " + status_line);
+        const auto response_body = response.substr(header_end + 4);
+        throw EmbeddingError(
+            "Ollama embedding request failed: " + status_line
+                + (response_body.empty() ? std::string() : ": " + response_body)
+        );
     }
     return response.substr(header_end + 4);
 }
