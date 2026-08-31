@@ -1,0 +1,1760 @@
+============================================================
+SEMANTIC MAP EVALUATION
+============================================================
+
+Dataset:              adversarial-v1
+Arguments:            24
+Embedding backend:    ollama
+Embedding model:      nomic-embed-text
+Representation:       normalized
+Normalization model:  gemma3:4b
+Relationship model:   gemma3:4b
+
+------------------------------------------------------------
+RETRIEVAL
+------------------------------------------------------------
+
+Recall@1      30.4%
+Recall@3      43.5%
+Recall@5      65.2%
+Recall@10    100.0%
+
+------------------------------------------------------------
+NORMALIZATION FIDELITY
+------------------------------------------------------------
+
+Potential fidelity review flags: 1
+JURISDICTION_DROPPED_OR_CHANGED:     0
+NEGATION_MAY_BE_DROPPED:             0
+DEPENDENCY_DIRECTION_REVIEW:         0
+QUALIFIER_OR_CONDITION_REVIEW:       1
+COMPOUND_CLAUSE_REVIEW:              0
+Human-labeled normalizations:            0
+
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+------------------------------------------------------------
+
+Class accuracy:       64.3%
+Directional accuracy: 75.0%
+Full edge accuracy:   57.1%
+Schema-valid rate:    100.0%
+Parse-success rate:   100.0%
+Valid predictions:    14
+
+Class               Precision     Recall
+------------------------------------------------------------
+ATTACKS                100.0%      66.7%
+RELATED                 50.0%      33.3%
+SAME_ARGUMENT           80.0%      80.0%
+SUPPORTS                66.7%      66.7%
+
+------------------------------------------------------------
+NOVELTY
+------------------------------------------------------------
+
+Accuracy: 100.0%
+
+============================================================
+
+============================================================
+PERFORMANCE
+============================================================
+
+Document loading:              0.09 ms
+Normalization:                46.63 ms
+Embedding:                     4.71 ms
+Retrieval:                    24.23 ms
+Relationship inference:        0.86 ms
+Evaluation:                    1.51 ms
+Total:                        77.94 ms
+
+AI calls / cache
+------------------------------------------------------------
+Normalization:    24 requests |  24 cached |   0 generated
+Embeddings:        1 requests |  24 cached |   0 generated
+Relationships:    19 requests |  19 cached |   0 generated
+============================================================
+
+============================================================
+NORMALIZATION INSPECTION
+============================================================
+
+[A1]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Federal sports betting regulation creates consistent consumer protections nationwide.
+
+NORMALIZED
+------------------------------------------------------------
+Federal sports betting regulation creates consistent consumer protections nationwide.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Federal sports betting regulation creates consistent consumer protections nationwide.", "confidence":0.95}
+
+[A2]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+A national framework ensures bettors receive equivalent safeguards regardless of their state.
+
+NORMALIZED
+------------------------------------------------------------
+A national framework ensures that bettors receive equivalent safeguards irrespective of their state.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"A national framework ensures that bettors receive equivalent safeguards irrespective of their state.", "confidence":0.95}
+
+[A3]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+
+NORMALIZED
+------------------------------------------------------------
+Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Uniform federal standards improve consumer protection by preventing regulatory gaps between states.", "confidence":0.95}
+
+[A4]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+
+NORMALIZED
+------------------------------------------------------------
+Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.", "confidence":0.95}
+
+[A5]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Federal sports betting regulation reduces illegal offshore betting.
+
+NORMALIZED
+------------------------------------------------------------
+Federal sports betting regulation reduces illegal offshore betting.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Federal sports betting regulation reduces illegal offshore betting.", "confidence":0.95}
+
+[A6]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+After legalization, illegal sportsbook market share fell from 36 percent to 24 percent.
+
+NORMALIZED
+------------------------------------------------------------
+Following the legalization, the market share of the illegal sportsbook market decreased from 36 percent to 24 percent.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Following the legalization, the market share of the illegal sportsbook market decreased from 36 percent to 24 percent.", "confidence":0.95}
+
+[A7]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+NORMALIZED
+------------------------------------------------------------
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Federal sports betting regulation increases compliance costs for small sportsbooks.", "confidence":0.95}
+
+[A8]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Small operators face expensive reporting and licensing requirements under a national betting framework.
+
+NORMALIZED
+------------------------------------------------------------
+Small operators experience high costs related to reporting and licensing due to a national betting framework.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Small operators experience high costs related to reporting and licensing due to a national betting framework.", "confidence":0.95}
+
+[A9]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Legalization reduces illegal betting markets.
+
+NORMALIZED
+------------------------------------------------------------
+Legalization reduces illegal betting markets.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Legalization reduces illegal betting markets.", "confidence":0.95}
+
+[A10]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+There is no evidence that legalization reduces illegal betting.
+
+NORMALIZED
+------------------------------------------------------------
+There is no evidence that legalization reduces illegal betting.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"There is no evidence that legalization reduces illegal betting.", "confidence":0.95}
+
+[A11]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Legalization does not increase addiction.
+
+NORMALIZED
+------------------------------------------------------------
+Legalization does not increase addiction.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Legalization does not increase addiction.", "confidence":0.95}
+
+[A12]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Legalization improves consumer protection through age checks and regulated operators.
+
+NORMALIZED
+------------------------------------------------------------
+Legalization improves consumer protection through age checks and regulated operators.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Legalization improves consumer protection through age checks and regulated operators.", "confidence":0.95}
+
+[A13]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+State regulation effectively reduces illegal betting.
+
+NORMALIZED
+------------------------------------------------------------
+State regulation effectively reduces illegal betting.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"State regulation effectively reduces illegal betting.", "confidence":0.95}
+
+[A14]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Cohen 2025 finds that legal sportsbooks displaced illegal market share after regulation.
+
+NORMALIZED
+------------------------------------------------------------
+After regulation, legal sportsbooks displaced the market share of illegal markets.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"After regulation, legal sportsbooks displaced the market share of illegal markets.", "confidence":0.95}
+
+[A15]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Federal regulation improves consumer protection but reduces state flexibility.
+
+NORMALIZED
+------------------------------------------------------------
+Federal regulation improves consumer protection and reduces state flexibility.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Federal regulation improves consumer protection and reduces state flexibility.", "confidence":0.95}
+
+[A16]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+National rules create uniform safeguards while limiting state experimentation.
+
+NORMALIZED
+------------------------------------------------------------
+National rules establish uniform safeguards and limit experimentation by states.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"National rules establish uniform safeguards and limit experimentation by states.", "confidence":0.95}
+
+[A17]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Centralized national betting databases create valuable cyberattack targets for foreign adversaries.
+
+NORMALIZED
+------------------------------------------------------------
+Centralized national betting databases represent valuable targets for cyberattacks by foreign adversaries.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Centralized national betting databases represent valuable targets for cyberattacks by foreign adversaries.", "confidence":0.95}
+
+[A18]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+A single federal wagering database concentrates sensitive bettor information in one infrastructure target.
+
+NORMALIZED
+------------------------------------------------------------
+A single federal wagering database concentrates sensitive bettor information in one infrastructure target.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"A single federal wagering database concentrates sensitive bettor information in one infrastructure target.", "confidence":0.95}
+
+[A19]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+State experimentation produces stronger consumer protections than uniform federal standards.
+
+NORMALIZED
+------------------------------------------------------------
+State experimentation produces stronger consumer protections than uniform federal standards.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"State experimentation produces stronger consumer protections than uniform federal standards.", "confidence":0.95}
+
+[A20]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Local regulators can adapt safeguards to market conditions more effectively than a national rulebook.
+
+NORMALIZED
+------------------------------------------------------------
+Local regulators can adapt safeguards to market conditions more effectively than a national rulebook.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Local regulators can adapt safeguards to market conditions more effectively than a national rulebook.", "confidence":0.95}
+
+[A21]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+The FTC lacks enough staff to enforce existing online gambling rules.
+
+NORMALIZED
+------------------------------------------------------------
+The Federal Trade Commission lacks sufficient personnel to adequately enforce current regulations pertaining to online gambling.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"The Federal Trade Commission lacks sufficient personnel to adequately enforce current regulations pertaining to online gambling.", "confidence":0.95}
+
+[A22]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Federal agencies cannot consistently police betting platforms because their enforcement capacity is limited.
+
+NORMALIZED
+------------------------------------------------------------
+Federal agencies are unable to consistently enforce regulations against betting platforms due to limited enforcement capacity.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Federal agencies are unable to consistently enforce regulations against betting platforms due to limited enforcement capacity.", "confidence":0.95}
+
+[A23]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Consumer protection depends on effective age verification at licensed sportsbooks.
+
+NORMALIZED
+------------------------------------------------------------
+Consumer protection depends on effective age verification at licensed sportsbooks.
+
+Status: OK  Model: gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Consumer protection depends on effective age verification at licensed sportsbooks.", "confidence":0.95}
+
+[A24]  review: UNREVIEWED
+
+ORIGINAL
+------------------------------------------------------------
+Licensed betting operators can block minors when platforms verify identity before accepting wagers.
+
+NORMALIZED
+------------------------------------------------------------
+Licensed betting operators may block minors if their platforms verify identities and accept wagers.
+
+Status: OK  Model: gemma3:4b
+Fidelity review: QUALIFIER_OR_CONDITION_REVIEW
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"semanticSummary":"Licensed betting operators may block minors if their platforms verify identities and accept wagers.", "confidence":0.95}
+
+============================================================
+RETRIEVAL DETAILS
+============================================================
+
+Query [A1]
+------------------------------------------------------------
+Federal sports betting regulation creates consistent consumer protections nationwide.
+
+Normalized
+------------------------------------------------------------
+Federal sports betting regulation creates consistent consumer protections nationwide.
+
+Expected matches: A2
+Expected rank: A2: 7
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A5  similarity: 0.815
+Federal sports betting regulation reduces illegal offshore betting.
+Normalized: Federal sports betting regulation reduces illegal offshore betting.
+
+#2  A7  similarity: 0.801
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+Normalized: Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+#3  A13  similarity: 0.780
+State regulation effectively reduces illegal betting.
+Normalized: State regulation effectively reduces illegal betting.
+
+#4  A22  similarity: 0.773
+Federal agencies cannot consistently police betting platforms because their enforcement capacity is limited.
+Normalized: Federal agencies are unable to consistently enforce regulations against betting platforms due to limited enforcement capacity.
+
+#5  A15  similarity: 0.741
+Federal regulation improves consumer protection but reduces state flexibility.
+Normalized: Federal regulation improves consumer protection and reduces state flexibility.
+
+Query [A2]
+------------------------------------------------------------
+A national framework ensures bettors receive equivalent safeguards regardless of their state.
+
+Normalized
+------------------------------------------------------------
+A national framework ensures that bettors receive equivalent safeguards irrespective of their state.
+
+Expected matches: A1
+Expected rank: A1: 3
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A17  similarity: 0.730
+Centralized national betting databases create valuable cyberattack targets for foreign adversaries.
+Normalized: Centralized national betting databases represent valuable targets for cyberattacks by foreign adversaries.
+
+#2  A18  similarity: 0.716
+A single federal wagering database concentrates sensitive bettor information in one infrastructure target.
+Normalized: A single federal wagering database concentrates sensitive bettor information in one infrastructure target.
+
+#3  A1  similarity: 0.715  <-- EXPECTED
+Federal sports betting regulation creates consistent consumer protections nationwide.
+Normalized: Federal sports betting regulation creates consistent consumer protections nationwide.
+
+#4  A13  similarity: 0.701
+State regulation effectively reduces illegal betting.
+Normalized: State regulation effectively reduces illegal betting.
+
+#5  A16  similarity: 0.684
+National rules create uniform safeguards while limiting state experimentation.
+Normalized: National rules establish uniform safeguards and limit experimentation by states.
+
+Query [A3]
+------------------------------------------------------------
+Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+
+Normalized
+------------------------------------------------------------
+Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+
+Expected matches: A4
+Expected rank: A4: 1
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A4  similarity: 0.895  <-- EXPECTED
+Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+Normalized: Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+
+#2  A15  similarity: 0.833
+Federal regulation improves consumer protection but reduces state flexibility.
+Normalized: Federal regulation improves consumer protection and reduces state flexibility.
+
+#3  A19  similarity: 0.816
+State experimentation produces stronger consumer protections than uniform federal standards.
+Normalized: State experimentation produces stronger consumer protections than uniform federal standards.
+
+#4  A16  similarity: 0.732
+National rules create uniform safeguards while limiting state experimentation.
+Normalized: National rules establish uniform safeguards and limit experimentation by states.
+
+#5  A1  similarity: 0.695
+Federal sports betting regulation creates consistent consumer protections nationwide.
+Normalized: Federal sports betting regulation creates consistent consumer protections nationwide.
+
+Query [A4]
+------------------------------------------------------------
+Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+
+Normalized
+------------------------------------------------------------
+Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+
+Expected matches: A3
+Expected rank: A3: 1
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A3  similarity: 0.895  <-- EXPECTED
+Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+Normalized: Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+
+#2  A19  similarity: 0.810
+State experimentation produces stronger consumer protections than uniform federal standards.
+Normalized: State experimentation produces stronger consumer protections than uniform federal standards.
+
+#3  A15  similarity: 0.805
+Federal regulation improves consumer protection but reduces state flexibility.
+Normalized: Federal regulation improves consumer protection and reduces state flexibility.
+
+#4  A16  similarity: 0.771
+National rules create uniform safeguards while limiting state experimentation.
+Normalized: National rules establish uniform safeguards and limit experimentation by states.
+
+#5  A20  similarity: 0.725
+Local regulators can adapt safeguards to market conditions more effectively than a national rulebook.
+Normalized: Local regulators can adapt safeguards to market conditions more effectively than a national rulebook.
+
+Query [A5]
+------------------------------------------------------------
+Federal sports betting regulation reduces illegal offshore betting.
+
+Normalized
+------------------------------------------------------------
+Federal sports betting regulation reduces illegal offshore betting.
+
+Expected matches: A6
+Expected rank: A6: 10
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A13  similarity: 0.864
+State regulation effectively reduces illegal betting.
+Normalized: State regulation effectively reduces illegal betting.
+
+#2  A1  similarity: 0.815
+Federal sports betting regulation creates consistent consumer protections nationwide.
+Normalized: Federal sports betting regulation creates consistent consumer protections nationwide.
+
+#3  A9  similarity: 0.812
+Legalization reduces illegal betting markets.
+Normalized: Legalization reduces illegal betting markets.
+
+#4  A10  similarity: 0.781
+There is no evidence that legalization reduces illegal betting.
+Normalized: There is no evidence that legalization reduces illegal betting.
+
+#5  A7  similarity: 0.779
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+Normalized: Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+Query [A6]
+------------------------------------------------------------
+After legalization, illegal sportsbook market share fell from 36 percent to 24 percent.
+
+Normalized
+------------------------------------------------------------
+Following the legalization, the market share of the illegal sportsbook market decreased from 36 percent to 24 percent.
+
+Expected matches: A5
+Expected rank: A5: 4
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A14  similarity: 0.903
+Cohen 2025 finds that legal sportsbooks displaced illegal market share after regulation.
+Normalized: After regulation, legal sportsbooks displaced the market share of illegal markets.
+
+#2  A9  similarity: 0.778
+Legalization reduces illegal betting markets.
+Normalized: Legalization reduces illegal betting markets.
+
+#3  A10  similarity: 0.739
+There is no evidence that legalization reduces illegal betting.
+Normalized: There is no evidence that legalization reduces illegal betting.
+
+#4  A5  similarity: 0.673  <-- EXPECTED
+Federal sports betting regulation reduces illegal offshore betting.
+Normalized: Federal sports betting regulation reduces illegal offshore betting.
+
+#5  A13  similarity: 0.673
+State regulation effectively reduces illegal betting.
+Normalized: State regulation effectively reduces illegal betting.
+
+Query [A7]
+------------------------------------------------------------
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+Normalized
+------------------------------------------------------------
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+Expected matches: A8
+Expected rank: A8: 4
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A1  similarity: 0.801
+Federal sports betting regulation creates consistent consumer protections nationwide.
+Normalized: Federal sports betting regulation creates consistent consumer protections nationwide.
+
+#2  A5  similarity: 0.779
+Federal sports betting regulation reduces illegal offshore betting.
+Normalized: Federal sports betting regulation reduces illegal offshore betting.
+
+#3  A14  similarity: 0.748
+Cohen 2025 finds that legal sportsbooks displaced illegal market share after regulation.
+Normalized: After regulation, legal sportsbooks displaced the market share of illegal markets.
+
+#4  A8  similarity: 0.732  <-- EXPECTED
+Small operators face expensive reporting and licensing requirements under a national betting framework.
+Normalized: Small operators experience high costs related to reporting and licensing due to a national betting framework.
+
+#5  A22  similarity: 0.730
+Federal agencies cannot consistently police betting platforms because their enforcement capacity is limited.
+Normalized: Federal agencies are unable to consistently enforce regulations against betting platforms due to limited enforcement capacity.
+
+Query [A8]
+------------------------------------------------------------
+Small operators face expensive reporting and licensing requirements under a national betting framework.
+
+Normalized
+------------------------------------------------------------
+Small operators experience high costs related to reporting and licensing due to a national betting framework.
+
+Expected matches: A7
+Expected rank: A7: 1
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A7  similarity: 0.732  <-- EXPECTED
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+Normalized: Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+#2  A24  similarity: 0.717
+Licensed betting operators can block minors when platforms verify identity before accepting wagers.
+Normalized: Licensed betting operators may block minors if their platforms verify identities and accept wagers.
+
+#3  A22  similarity: 0.683
+Federal agencies cannot consistently police betting platforms because their enforcement capacity is limited.
+Normalized: Federal agencies are unable to consistently enforce regulations against betting platforms due to limited enforcement capacity.
+
+#4  A13  similarity: 0.671
+State regulation effectively reduces illegal betting.
+Normalized: State regulation effectively reduces illegal betting.
+
+#5  A2  similarity: 0.655
+A national framework ensures bettors receive equivalent safeguards regardless of their state.
+Normalized: A national framework ensures that bettors receive equivalent safeguards irrespective of their state.
+
+Query [A9]
+------------------------------------------------------------
+Legalization reduces illegal betting markets.
+
+Normalized
+------------------------------------------------------------
+Legalization reduces illegal betting markets.
+
+Expected matches: A10
+Expected rank: A10: 1
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A10  similarity: 0.895  <-- EXPECTED
+There is no evidence that legalization reduces illegal betting.
+Normalized: There is no evidence that legalization reduces illegal betting.
+
+#2  A13  similarity: 0.855
+State regulation effectively reduces illegal betting.
+Normalized: State regulation effectively reduces illegal betting.
+
+#3  A5  similarity: 0.812
+Federal sports betting regulation reduces illegal offshore betting.
+Normalized: Federal sports betting regulation reduces illegal offshore betting.
+
+#4  A6  similarity: 0.778
+After legalization, illegal sportsbook market share fell from 36 percent to 24 percent.
+Normalized: Following the legalization, the market share of the illegal sportsbook market decreased from 36 percent to 24 percent.
+
+#5  A14  similarity: 0.757
+Cohen 2025 finds that legal sportsbooks displaced illegal market share after regulation.
+Normalized: After regulation, legal sportsbooks displaced the market share of illegal markets.
+
+Query [A10]
+------------------------------------------------------------
+There is no evidence that legalization reduces illegal betting.
+
+Normalized
+------------------------------------------------------------
+There is no evidence that legalization reduces illegal betting.
+
+Expected matches: A9
+Expected rank: A9: 1
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A9  similarity: 0.895  <-- EXPECTED
+Legalization reduces illegal betting markets.
+Normalized: Legalization reduces illegal betting markets.
+
+#2  A13  similarity: 0.814
+State regulation effectively reduces illegal betting.
+Normalized: State regulation effectively reduces illegal betting.
+
+#3  A5  similarity: 0.781
+Federal sports betting regulation reduces illegal offshore betting.
+Normalized: Federal sports betting regulation reduces illegal offshore betting.
+
+#4  A6  similarity: 0.739
+After legalization, illegal sportsbook market share fell from 36 percent to 24 percent.
+Normalized: Following the legalization, the market share of the illegal sportsbook market decreased from 36 percent to 24 percent.
+
+#5  A11  similarity: 0.708
+Legalization does not increase addiction.
+Normalized: Legalization does not increase addiction.
+
+Query [A11]
+------------------------------------------------------------
+Legalization does not increase addiction.
+
+Normalized
+------------------------------------------------------------
+Legalization does not increase addiction.
+
+Expected matches: A12
+Expected rank: A12: 3
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A10  similarity: 0.708
+There is no evidence that legalization reduces illegal betting.
+Normalized: There is no evidence that legalization reduces illegal betting.
+
+#2  A9  similarity: 0.669
+Legalization reduces illegal betting markets.
+Normalized: Legalization reduces illegal betting markets.
+
+#3  A12  similarity: 0.639  <-- EXPECTED
+Legalization improves consumer protection through age checks and regulated operators.
+Normalized: Legalization improves consumer protection through age checks and regulated operators.
+
+#4  A6  similarity: 0.626
+After legalization, illegal sportsbook market share fell from 36 percent to 24 percent.
+Normalized: Following the legalization, the market share of the illegal sportsbook market decreased from 36 percent to 24 percent.
+
+#5  A14  similarity: 0.553
+Cohen 2025 finds that legal sportsbooks displaced illegal market share after regulation.
+Normalized: After regulation, legal sportsbooks displaced the market share of illegal markets.
+
+Query [A12]
+------------------------------------------------------------
+Legalization improves consumer protection through age checks and regulated operators.
+
+Normalized
+------------------------------------------------------------
+Legalization improves consumer protection through age checks and regulated operators.
+
+Expected matches: A11
+Expected rank: A11: 5
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A23  similarity: 0.741
+Consumer protection depends on effective age verification at licensed sportsbooks.
+Normalized: Consumer protection depends on effective age verification at licensed sportsbooks.
+
+#2  A15  similarity: 0.695
+Federal regulation improves consumer protection but reduces state flexibility.
+Normalized: Federal regulation improves consumer protection and reduces state flexibility.
+
+#3  A9  similarity: 0.664
+Legalization reduces illegal betting markets.
+Normalized: Legalization reduces illegal betting markets.
+
+#4  A3  similarity: 0.656
+Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+Normalized: Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+
+#5  A11  similarity: 0.639  <-- EXPECTED
+Legalization does not increase addiction.
+Normalized: Legalization does not increase addiction.
+
+Query [A13]
+------------------------------------------------------------
+State regulation effectively reduces illegal betting.
+
+Normalized
+------------------------------------------------------------
+State regulation effectively reduces illegal betting.
+
+Expected matches: A14
+Expected rank: A14: 6
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A5  similarity: 0.864
+Federal sports betting regulation reduces illegal offshore betting.
+Normalized: Federal sports betting regulation reduces illegal offshore betting.
+
+#2  A9  similarity: 0.855
+Legalization reduces illegal betting markets.
+Normalized: Legalization reduces illegal betting markets.
+
+#3  A10  similarity: 0.814
+There is no evidence that legalization reduces illegal betting.
+Normalized: There is no evidence that legalization reduces illegal betting.
+
+#4  A1  similarity: 0.780
+Federal sports betting regulation creates consistent consumer protections nationwide.
+Normalized: Federal sports betting regulation creates consistent consumer protections nationwide.
+
+#5  A22  similarity: 0.743
+Federal agencies cannot consistently police betting platforms because their enforcement capacity is limited.
+Normalized: Federal agencies are unable to consistently enforce regulations against betting platforms due to limited enforcement capacity.
+
+Query [A14]
+------------------------------------------------------------
+Cohen 2025 finds that legal sportsbooks displaced illegal market share after regulation.
+
+Normalized
+------------------------------------------------------------
+After regulation, legal sportsbooks displaced the market share of illegal markets.
+
+Expected matches: A13
+Expected rank: A13: 5
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A6  similarity: 0.903
+After legalization, illegal sportsbook market share fell from 36 percent to 24 percent.
+Normalized: Following the legalization, the market share of the illegal sportsbook market decreased from 36 percent to 24 percent.
+
+#2  A9  similarity: 0.757
+Legalization reduces illegal betting markets.
+Normalized: Legalization reduces illegal betting markets.
+
+#3  A7  similarity: 0.748
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+Normalized: Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+#4  A5  similarity: 0.732
+Federal sports betting regulation reduces illegal offshore betting.
+Normalized: Federal sports betting regulation reduces illegal offshore betting.
+
+#5  A13  similarity: 0.725  <-- EXPECTED
+State regulation effectively reduces illegal betting.
+Normalized: State regulation effectively reduces illegal betting.
+
+Query [A15]
+------------------------------------------------------------
+Federal regulation improves consumer protection but reduces state flexibility.
+
+Normalized
+------------------------------------------------------------
+Federal regulation improves consumer protection and reduces state flexibility.
+
+Expected matches: A16
+Expected rank: A16: 7
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A3  similarity: 0.833
+Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+Normalized: Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+
+#2  A4  similarity: 0.805
+Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+Normalized: Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+
+#3  A19  similarity: 0.785
+State experimentation produces stronger consumer protections than uniform federal standards.
+Normalized: State experimentation produces stronger consumer protections than uniform federal standards.
+
+#4  A1  similarity: 0.741
+Federal sports betting regulation creates consistent consumer protections nationwide.
+Normalized: Federal sports betting regulation creates consistent consumer protections nationwide.
+
+#5  A12  similarity: 0.695
+Legalization improves consumer protection through age checks and regulated operators.
+Normalized: Legalization improves consumer protection through age checks and regulated operators.
+
+Query [A16]
+------------------------------------------------------------
+National rules create uniform safeguards while limiting state experimentation.
+
+Normalized
+------------------------------------------------------------
+National rules establish uniform safeguards and limit experimentation by states.
+
+Expected matches: A15
+Expected rank: A15: 6
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A19  similarity: 0.778
+State experimentation produces stronger consumer protections than uniform federal standards.
+Normalized: State experimentation produces stronger consumer protections than uniform federal standards.
+
+#2  A4  similarity: 0.771
+Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+Normalized: Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+
+#3  A3  similarity: 0.732
+Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+Normalized: Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+
+#4  A20  similarity: 0.702
+Local regulators can adapt safeguards to market conditions more effectively than a national rulebook.
+Normalized: Local regulators can adapt safeguards to market conditions more effectively than a national rulebook.
+
+#5  A2  similarity: 0.684
+A national framework ensures bettors receive equivalent safeguards regardless of their state.
+Normalized: A national framework ensures that bettors receive equivalent safeguards irrespective of their state.
+
+Query [A18]
+------------------------------------------------------------
+A single federal wagering database concentrates sensitive bettor information in one infrastructure target.
+
+Normalized
+------------------------------------------------------------
+A single federal wagering database concentrates sensitive bettor information in one infrastructure target.
+
+Expected matches: A17
+Expected rank: A17: 1
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A17  similarity: 0.780  <-- EXPECTED
+Centralized national betting databases create valuable cyberattack targets for foreign adversaries.
+Normalized: Centralized national betting databases represent valuable targets for cyberattacks by foreign adversaries.
+
+#2  A22  similarity: 0.720
+Federal agencies cannot consistently police betting platforms because their enforcement capacity is limited.
+Normalized: Federal agencies are unable to consistently enforce regulations against betting platforms due to limited enforcement capacity.
+
+#3  A2  similarity: 0.716
+A national framework ensures bettors receive equivalent safeguards regardless of their state.
+Normalized: A national framework ensures that bettors receive equivalent safeguards irrespective of their state.
+
+#4  A1  similarity: 0.696
+Federal sports betting regulation creates consistent consumer protections nationwide.
+Normalized: Federal sports betting regulation creates consistent consumer protections nationwide.
+
+#5  A5  similarity: 0.675
+Federal sports betting regulation reduces illegal offshore betting.
+Normalized: Federal sports betting regulation reduces illegal offshore betting.
+
+Query [A19]
+------------------------------------------------------------
+State experimentation produces stronger consumer protections than uniform federal standards.
+
+Normalized
+------------------------------------------------------------
+State experimentation produces stronger consumer protections than uniform federal standards.
+
+Expected matches: A20
+Expected rank: A20: 6
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A3  similarity: 0.816
+Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+Normalized: Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+
+#2  A4  similarity: 0.810
+Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+Normalized: Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+
+#3  A15  similarity: 0.785
+Federal regulation improves consumer protection but reduces state flexibility.
+Normalized: Federal regulation improves consumer protection and reduces state flexibility.
+
+#4  A16  similarity: 0.778
+National rules create uniform safeguards while limiting state experimentation.
+Normalized: National rules establish uniform safeguards and limit experimentation by states.
+
+#5  A1  similarity: 0.674
+Federal sports betting regulation creates consistent consumer protections nationwide.
+Normalized: Federal sports betting regulation creates consistent consumer protections nationwide.
+
+Query [A20]
+------------------------------------------------------------
+Local regulators can adapt safeguards to market conditions more effectively than a national rulebook.
+
+Normalized
+------------------------------------------------------------
+Local regulators can adapt safeguards to market conditions more effectively than a national rulebook.
+
+Expected matches: A19
+Expected rank: A19: 6
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A4  similarity: 0.725
+Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+Normalized: Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+
+#2  A16  similarity: 0.702
+National rules create uniform safeguards while limiting state experimentation.
+Normalized: National rules establish uniform safeguards and limit experimentation by states.
+
+#3  A15  similarity: 0.677
+Federal regulation improves consumer protection but reduces state flexibility.
+Normalized: Federal regulation improves consumer protection and reduces state flexibility.
+
+#4  A3  similarity: 0.666
+Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+Normalized: Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+
+#5  A2  similarity: 0.661
+A national framework ensures bettors receive equivalent safeguards regardless of their state.
+Normalized: A national framework ensures that bettors receive equivalent safeguards irrespective of their state.
+
+Query [A21]
+------------------------------------------------------------
+The FTC lacks enough staff to enforce existing online gambling rules.
+
+Normalized
+------------------------------------------------------------
+The Federal Trade Commission lacks sufficient personnel to adequately enforce current regulations pertaining to online gambling.
+
+Expected matches: A22
+Expected rank: A22: 1
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A22  similarity: 0.762  <-- EXPECTED
+Federal agencies cannot consistently police betting platforms because their enforcement capacity is limited.
+Normalized: Federal agencies are unable to consistently enforce regulations against betting platforms due to limited enforcement capacity.
+
+#2  A1  similarity: 0.648
+Federal sports betting regulation creates consistent consumer protections nationwide.
+Normalized: Federal sports betting regulation creates consistent consumer protections nationwide.
+
+#3  A5  similarity: 0.639
+Federal sports betting regulation reduces illegal offshore betting.
+Normalized: Federal sports betting regulation reduces illegal offshore betting.
+
+#4  A18  similarity: 0.621
+A single federal wagering database concentrates sensitive bettor information in one infrastructure target.
+Normalized: A single federal wagering database concentrates sensitive bettor information in one infrastructure target.
+
+#5  A24  similarity: 0.606
+Licensed betting operators can block minors when platforms verify identity before accepting wagers.
+Normalized: Licensed betting operators may block minors if their platforms verify identities and accept wagers.
+
+Query [A22]
+------------------------------------------------------------
+Federal agencies cannot consistently police betting platforms because their enforcement capacity is limited.
+
+Normalized
+------------------------------------------------------------
+Federal agencies are unable to consistently enforce regulations against betting platforms due to limited enforcement capacity.
+
+Expected matches: A21
+Expected rank: A21: 2
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A1  similarity: 0.773
+Federal sports betting regulation creates consistent consumer protections nationwide.
+Normalized: Federal sports betting regulation creates consistent consumer protections nationwide.
+
+#2  A21  similarity: 0.762  <-- EXPECTED
+The FTC lacks enough staff to enforce existing online gambling rules.
+Normalized: The Federal Trade Commission lacks sufficient personnel to adequately enforce current regulations pertaining to online gambling.
+
+#3  A5  similarity: 0.755
+Federal sports betting regulation reduces illegal offshore betting.
+Normalized: Federal sports betting regulation reduces illegal offshore betting.
+
+#4  A13  similarity: 0.743
+State regulation effectively reduces illegal betting.
+Normalized: State regulation effectively reduces illegal betting.
+
+#5  A7  similarity: 0.730
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+Normalized: Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+Query [A23]
+------------------------------------------------------------
+Consumer protection depends on effective age verification at licensed sportsbooks.
+
+Normalized
+------------------------------------------------------------
+Consumer protection depends on effective age verification at licensed sportsbooks.
+
+Expected matches: A24
+Expected rank: A24: 5
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A12  similarity: 0.741
+Legalization improves consumer protection through age checks and regulated operators.
+Normalized: Legalization improves consumer protection through age checks and regulated operators.
+
+#2  A1  similarity: 0.698
+Federal sports betting regulation creates consistent consumer protections nationwide.
+Normalized: Federal sports betting regulation creates consistent consumer protections nationwide.
+
+#3  A14  similarity: 0.691
+Cohen 2025 finds that legal sportsbooks displaced illegal market share after regulation.
+Normalized: After regulation, legal sportsbooks displaced the market share of illegal markets.
+
+#4  A7  similarity: 0.659
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+Normalized: Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+#5  A24  similarity: 0.655  <-- EXPECTED
+Licensed betting operators can block minors when platforms verify identity before accepting wagers.
+Normalized: Licensed betting operators may block minors if their platforms verify identities and accept wagers.
+
+Query [A24]
+------------------------------------------------------------
+Licensed betting operators can block minors when platforms verify identity before accepting wagers.
+
+Normalized
+------------------------------------------------------------
+Licensed betting operators may block minors if their platforms verify identities and accept wagers.
+
+Expected matches: A23
+Expected rank: A23: 8
+
+TOP RETRIEVED CANDIDATES
+------------------------------------------------------------
+
+#1  A22  similarity: 0.725
+Federal agencies cannot consistently police betting platforms because their enforcement capacity is limited.
+Normalized: Federal agencies are unable to consistently enforce regulations against betting platforms due to limited enforcement capacity.
+
+#2  A8  similarity: 0.717
+Small operators face expensive reporting and licensing requirements under a national betting framework.
+Normalized: Small operators experience high costs related to reporting and licensing due to a national betting framework.
+
+#3  A13  similarity: 0.717
+State regulation effectively reduces illegal betting.
+Normalized: State regulation effectively reduces illegal betting.
+
+#4  A9  similarity: 0.705
+Legalization reduces illegal betting markets.
+Normalized: Legalization reduces illegal betting markets.
+
+#5  A10  similarity: 0.684
+There is no evidence that legalization reduces illegal betting.
+Normalized: There is no evidence that legalization reduces illegal betting.
+
+============================================================
+RELATIONSHIP PREDICTIONS
+============================================================
+
+[PREDICTION 1 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A1]
+------------------------------------------------------------
+Federal sports betting regulation creates consistent consumer protections nationwide.
+
+Normalized:
+Federal sports betting regulation creates consistent consumer protections nationwide.
+
+Argument B [A2]
+------------------------------------------------------------
+A national framework ensures bettors receive equivalent safeguards regardless of their state.
+
+Normalized:
+A national framework ensures that bettors receive equivalent safeguards irrespective of their state.
+
+Expected:   SAME_ARGUMENT (undirected)
+Predicted:  SAME_ARGUMENT (undirected)
+Edge:       None -> None
+Confidence: 0.95
+Reason:     Both arguments assert the same central proposition: federal sports betting regulation provides consistent consumer protections nationwide.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"SAME_ARGUMENT","source_argument":"A1","target_argument":"A2","confidence":0.95,"reason":"Both arguments assert the same central proposition: federal sports betting regulation provides consistent consumer protections nationwide."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[PREDICTION 2 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A3]
+------------------------------------------------------------
+Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+
+Normalized:
+Uniform federal standards improve consumer protection by preventing regulatory gaps between states.
+
+Argument B [A4]
+------------------------------------------------------------
+Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+
+Normalized:
+Uniform federal standards weaken consumer protection because national rules prevent states from adapting to local conditions.
+
+Expected:   ATTACKS (right_to_left)
+Predicted:  ATTACKS (right_to_left)
+Edge:       A4 -> A3
+Confidence: 0.00
+Reason:     A4 argues against the benefits of uniform standards, claiming they hinder adaptation and thus weaken protection, directly challenging A3's assertion that they improve it.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"ATTACKS","source_argument":"A4","target_argument":"A3","reason":"A4 argues against the benefits of uniform standards, claiming they hinder adaptation and thus weaken protection, directly challenging A3's assertion that they improve it."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[PREDICTION 3 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A5]
+------------------------------------------------------------
+Federal sports betting regulation reduces illegal offshore betting.
+
+Normalized:
+Federal sports betting regulation reduces illegal offshore betting.
+
+Argument B [A6]
+------------------------------------------------------------
+After legalization, illegal sportsbook market share fell from 36 percent to 24 percent.
+
+Normalized:
+Following the legalization, the market share of the illegal sportsbook market decreased from 36 percent to 24 percent.
+
+Expected:   SUPPORTS (right_to_left)
+Predicted:  SUPPORTS (right_to_left)
+Edge:       A6 -> A5
+Confidence: 0.90
+Reason:     The reduction in the illegal sportsbook market share following legalization provides evidence that federal sports betting regulation reduces illegal offshore betting.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"SUPPORTS","source_argument":"A6","target_argument":"A5","confidence":0.9,"reason":"The reduction in the illegal sportsbook market share following legalization provides evidence that federal sports betting regulation reduces illegal offshore betting."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[FAILURE 4 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A7]
+------------------------------------------------------------
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+Normalized:
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+Argument B [A8]
+------------------------------------------------------------
+Small operators face expensive reporting and licensing requirements under a national betting framework.
+
+Normalized:
+Small operators experience high costs related to reporting and licensing due to a national betting framework.
+
+Expected:   SAME_ARGUMENT (undirected)
+Predicted:  SUPPORTS (left_to_right)
+Edge:       A7 -> A8
+Confidence: 0.95
+Reason:     Argument A7 states that federal sports betting regulation increases compliance costs for small sportsbooks, while argument A8 describes similar high costs (reporting and licensing) associated with a national betting framework – essentially the same issue.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"SUPPORTS","source_argument":"A7","target_argument":"A8","confidence":0.95,"reason":"Argument A7 states that federal sports betting regulation increases compliance costs for small sportsbooks, while argument A8 describes similar high costs (reporting and licensing) associated with a national betting framework – essentially the same issue."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[PREDICTION 5 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A9]
+------------------------------------------------------------
+Legalization reduces illegal betting markets.
+
+Normalized:
+Legalization reduces illegal betting markets.
+
+Argument B [A10]
+------------------------------------------------------------
+There is no evidence that legalization reduces illegal betting.
+
+Normalized:
+There is no evidence that legalization reduces illegal betting.
+
+Expected:   ATTACKS (right_to_left)
+Predicted:  ATTACKS (right_to_left)
+Edge:       A10 -> A9
+Confidence: 0.95
+Reason:     A10 directly challenges the assertion in A9 by denying any evidence supporting it.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"ATTACKS","source_argument":"A10","target_argument":"A9","confidence":0.95,"reason":"A10 directly challenges the assertion in A9 by denying any evidence supporting it."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[FAILURE 6 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A11]
+------------------------------------------------------------
+Legalization does not increase addiction.
+
+Normalized:
+Legalization does not increase addiction.
+
+Argument B [A12]
+------------------------------------------------------------
+Legalization improves consumer protection through age checks and regulated operators.
+
+Normalized:
+Legalization improves consumer protection through age checks and regulated operators.
+
+Expected:   RELATED (undirected)
+Predicted:  UNRELATED (undirected)
+Edge:       None -> None
+Confidence: 0.80
+Reason:     The arguments address different aspects of legalization; one focuses on addiction, while the other concerns consumer protection.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"UNRELATED","source_argument":"A11","target_argument":"A12","confidence":0.8,"reason":"The arguments address different aspects of legalization; one focuses on addiction, while the other concerns consumer protection."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[FAILURE 7 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A13]
+------------------------------------------------------------
+State regulation effectively reduces illegal betting.
+
+Normalized:
+State regulation effectively reduces illegal betting.
+
+Argument B [A14]
+------------------------------------------------------------
+Cohen 2025 finds that legal sportsbooks displaced illegal market share after regulation.
+
+Normalized:
+After regulation, legal sportsbooks displaced the market share of illegal markets.
+
+Expected:   SUPPORTS (right_to_left)
+Predicted:  SUPPORTS (left_to_right)
+Edge:       A13 -> A14
+Confidence: 0.80
+Reason:     Cohen's finding provides evidence that state regulation leads to a reduction in illegal betting, supporting A13.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"SUPPORTS","source_argument":"A13","target_argument":"A14","confidence":0.8,"reason":"Cohen's finding provides evidence that state regulation leads to a reduction in illegal betting, supporting A13."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[PREDICTION 8 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A15]
+------------------------------------------------------------
+Federal regulation improves consumer protection but reduces state flexibility.
+
+Normalized:
+Federal regulation improves consumer protection and reduces state flexibility.
+
+Argument B [A16]
+------------------------------------------------------------
+National rules create uniform safeguards while limiting state experimentation.
+
+Normalized:
+National rules establish uniform safeguards and limit experimentation by states.
+
+Expected:   SAME_ARGUMENT (undirected)
+Predicted:  SAME_ARGUMENT (undirected)
+Edge:       None -> None
+Confidence: 0.95
+Reason:     Both arguments express the same core idea: federal regulation enhances consumer protection but diminishes state autonomy.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"SAME_ARGUMENT","source_argument":"A15","target_argument":"A16","confidence":0.95,"reason":"Both arguments express the same core idea: federal regulation enhances consumer protection but diminishes state autonomy."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[PREDICTION 9 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A17]
+------------------------------------------------------------
+Centralized national betting databases create valuable cyberattack targets for foreign adversaries.
+
+Normalized:
+Centralized national betting databases represent valuable targets for cyberattacks by foreign adversaries.
+
+Argument B [A18]
+------------------------------------------------------------
+A single federal wagering database concentrates sensitive bettor information in one infrastructure target.
+
+Normalized:
+A single federal wagering database concentrates sensitive bettor information in one infrastructure target.
+
+Expected:   SAME_ARGUMENT (undirected)
+Predicted:  SAME_ARGUMENT (undirected)
+Edge:       None -> None
+Confidence: 0.95
+Reason:     Both arguments assert that a centralized betting database creates a significant cyberattack risk due to the concentration of sensitive information and its status as a single, vulnerable target.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"SAME_ARGUMENT","source_argument":"A17","target_argument":"A18","confidence":0.95,"reason":"Both arguments assert that a centralized betting database creates a significant cyberattack risk due to the concentration of sensitive information and its status as a single, vulnerable target."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[FAILURE 10 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A1]
+------------------------------------------------------------
+Federal sports betting regulation creates consistent consumer protections nationwide.
+
+Normalized:
+Federal sports betting regulation creates consistent consumer protections nationwide.
+
+Argument B [A19]
+------------------------------------------------------------
+State experimentation produces stronger consumer protections than uniform federal standards.
+
+Normalized:
+State experimentation produces stronger consumer protections than uniform federal standards.
+
+Expected:   ATTACKS (right_to_left)
+Predicted:  RELATED (undirected)
+Edge:       None -> None
+Confidence: 0.70
+Reason:     Both arguments relate to consumer protection in sports betting, with A1 advocating for federal regulation and A19 favoring state-level experimentation.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"RELATED","source_argument":"A1","target_argument":"A19","confidence":0.7,"reason":"Both arguments relate to consumer protection in sports betting, with A1 advocating for federal regulation and A19 favoring state-level experimentation."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[PREDICTION 11 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A21]
+------------------------------------------------------------
+The FTC lacks enough staff to enforce existing online gambling rules.
+
+Normalized:
+The Federal Trade Commission lacks sufficient personnel to adequately enforce current regulations pertaining to online gambling.
+
+Argument B [A22]
+------------------------------------------------------------
+Federal agencies cannot consistently police betting platforms because their enforcement capacity is limited.
+
+Normalized:
+Federal agencies are unable to consistently enforce regulations against betting platforms due to limited enforcement capacity.
+
+Expected:   SAME_ARGUMENT (undirected)
+Predicted:  SAME_ARGUMENT (undirected)
+Edge:       None -> None
+Confidence: 0.95
+Reason:     Both arguments assert the same central proposition: that a lack of resources (staff/enforcement capacity) prevents government agencies from effectively regulating online gambling.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"SAME_ARGUMENT","source_argument":"A21","target_argument":"A22","confidence":0.95,"reason":"Both arguments assert the same central proposition: that a lack of resources (staff/enforcement capacity) prevents government agencies from effectively regulating online gambling."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[FAILURE 12 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A23]
+------------------------------------------------------------
+Consumer protection depends on effective age verification at licensed sportsbooks.
+
+Normalized:
+Consumer protection depends on effective age verification at licensed sportsbooks.
+
+Argument B [A24]
+------------------------------------------------------------
+Licensed betting operators can block minors when platforms verify identity before accepting wagers.
+
+Normalized:
+Licensed betting operators may block minors if their platforms verify identities and accept wagers.
+
+Expected:   SUPPORTS (right_to_left)
+Predicted:  SAME_ARGUMENT (undirected)
+Edge:       None -> None
+Confidence: 0.95
+Reason:     Both arguments assert the same central proposition: age verification is crucial for consumer protection in sportsbooks.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"SAME_ARGUMENT","source_argument":"A23","target_argument":"A24","confidence":0.95,"reason":"Both arguments assert the same central proposition: age verification is crucial for consumer protection in sportsbooks."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[PREDICTION 13 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A5]
+------------------------------------------------------------
+Federal sports betting regulation reduces illegal offshore betting.
+
+Normalized:
+Federal sports betting regulation reduces illegal offshore betting.
+
+Argument B [A7]
+------------------------------------------------------------
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+Normalized:
+Federal sports betting regulation increases compliance costs for small sportsbooks.
+
+Expected:   RELATED (undirected)
+Predicted:  RELATED (undirected)
+Edge:       None -> None
+Confidence: 0.80
+Reason:     Both arguments relate to the impact of federal sports betting regulation, specifically concerning offshore betting and compliance costs.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"RELATED","source_argument":"A5","target_argument":"A7","confidence":0.8,"reason":"Both arguments relate to the impact of federal sports betting regulation, specifically concerning offshore betting and compliance costs."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
+
+[FAILURE 14 / 14]
+
+Type:
+------------------------------------------------------------
+RELATIONSHIP CLASSIFICATION
+
+Argument A [A1]
+------------------------------------------------------------
+Federal sports betting regulation creates consistent consumer protections nationwide.
+
+Normalized:
+Federal sports betting regulation creates consistent consumer protections nationwide.
+
+Argument B [A21]
+------------------------------------------------------------
+The FTC lacks enough staff to enforce existing online gambling rules.
+
+Normalized:
+The Federal Trade Commission lacks sufficient personnel to adequately enforce current regulations pertaining to online gambling.
+
+Expected:   RELATED (undirected)
+Predicted:  UNRELATED (undirected)
+Edge:       None -> None
+Confidence: 0.70
+Reason:     The arguments address different issues: one concerns regulation and consumer protection, while the other focuses on FTC staffing levels.
+Model:      gemma3:4b
+
+RAW MODEL RESPONSE
+------------------------------------------------------------
+{"relationship":"UNRELATED","source_argument":"A1","target_argument":"A21","confidence":0.7,"reason":"The arguments address different issues: one concerns regulation and consumer protection, while the other focuses on FTC staffing levels."}
+
+PARSE STATUS
+------------------------------------------------------------
+OK
+------------------------------------------------------------
