@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace sekret::hybrid {
@@ -47,6 +48,7 @@ struct HybridSearchRequest {
     std::size_t lexical_limit = 50;
     std::size_t citation_limit = 20;
     bool include_diagnostics = false;
+    bool analysis_mode = false;
 };
 
 struct HybridSearchResponse {
@@ -54,6 +56,7 @@ struct HybridSearchResponse {
     std::string source_status;
     std::string main_claim;
     std::optional<std::string> uncertainty;
+    std::vector<std::pair<std::string, double>> timings;
 };
 
 struct HybridEngineOptions {
