@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <utility>
 #include <set>
 #include <sstream>
 
@@ -170,7 +171,90 @@ void add_reason(std::vector<std::string>& reasons, const std::string& label, con
     reasons.push_back(output.str());
 }
 
+std::size_t intersection_size(const std::set<std::string>& left, const std::set<std::string>& right) {
+    std::size_t result = 0;
+    for (const auto& value : left) {
+        if (right.count(value) != 0) {
+            ++result;
+        }
+    }
+    return result;
+}
+
 } // namespace
+
+LightweightRelevanceReranker::LightweightRelevanceReranker(double threshold)
+    : threshold_(threshold) {}
+
+std::vector<RerankedCard> LightweightRelevanceReranker::rerank(
+    const std::string& query,
+    const std::vector<RetrievedCard>& cards,
+    std::size_t limit
+) const {
+    const auto query_terms = terms(query);
+    if (query_terms.empty() || limit == 0) {
+        return {};
+    }
+
+    std::vector<RerankedCard> scored;
+    scored.reserve(cards.size());
+    for (auto card : cards) {
+        const auto tag_terms = terms(card.tag);
+        const auto section_terms = terms(card.section);
+        const auto highlight_terms = terms(highlight_text(card));
+
+        auto card_terms = tag_terms;
+        card_terms.insert(section_terms.begin(), section_terms.end());
+        card_terms.insert(highlight_terms.begin(), highlight_terms.end());
+        if (intersection_size(query_terms, card_terms) == 0) {
+            continue;
+        }
+
+        const double score = static_cast<double>(intersection_size(query_terms, tag_terms)) * 3.0
+            + static_cast<double>(intersection_size(query_terms, highlight_terms)) * 1.5
+            + static_cast<double>(intersection_size(query_terms, section_terms)) * 0.5;
+        if (score < threshold_) {
+            continue;
+        }
+
+        CandidateAssessment assessment;
+        assessment.card_id = card.card_id.empty() ? card.id : card.card_id;
+        assessment.relevance_score = score;
+        assessment.topic_match = static_cast<double>(intersection_size(query_terms, card_terms))
+            / static_cast<double>(query_terms.size());
+        assessment.relationship = Relationship::Qualifies;
+        assessment.confidence = 1.0;
+        assessment.reasons = {
+            "lightweight tag/section/highlight relevance",
+            "score: " + std::to_string(score),
+        };
+        card.reranker_score = score;
+        scored.push_back({std::move(card), std::move(assessment), {}});
+    }
+
+    std::stable_sort(scored.begin(), scored.end(), [](const RerankedCard& left, const RerankedCard& right) {
+        if (left.assessment.relevance_score != right.assessment.relevance_score) {
+            return left.assessment.relevance_score > right.assessment.relevance_score;
+        }
+        return left.card.score > right.card.score;
+    });
+
+    std::set<std::pair<std::string, std::string>> seen;
+    std::vector<RerankedCard> selected;
+    selected.reserve(std::min(limit, scored.size()));
+    for (auto& row : scored) {
+        const auto key = std::make_pair(row.card.section, row.card.tag);
+        if (seen.count(key) != 0) {
+            continue;
+        }
+        seen.insert(key);
+        selected.push_back(std::move(row));
+        if (selected.size() >= limit) {
+            break;
+        }
+    }
+    return selected;
+}
 
 std::vector<RerankedCard> FullContextReranker::rerank(
     const QueryIntent& intent,
