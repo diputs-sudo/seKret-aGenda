@@ -11,12 +11,14 @@ fn build_card_separator() {
     let source = manifest_dir.join("../backend/card_separator/card_separator.cpp");
     println!("cargo:rerun-if-changed={}", source.display());
     if !source.exists() {
-        panic!("Required card separator source not found: {}", source.display());
+        panic!(
+            "Required card separator source not found: {}",
+            source.display()
+        );
     }
 
-    let out_dir = std::path::PathBuf::from(
-        std::env::var("OUT_DIR").expect("OUT_DIR is set by Cargo"),
-    );
+    let out_dir =
+        std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR is set by Cargo"));
     let executable = out_dir.join(if cfg!(windows) {
         "card_separator.exe"
     } else {
@@ -60,7 +62,10 @@ fn build_card_separator() {
         );
     }
 
-    println!("cargo:rustc-env=CARD_SEPARATOR_BIN={}", executable.display());
+    println!(
+        "cargo:rustc-env=CARD_SEPARATOR_BIN={}",
+        executable.display()
+    );
     println!("cargo:rustc-env=CARD_SEPARATOR_SOURCE={}", source.display());
 }
 
@@ -71,6 +76,7 @@ fn build_hybrid_backend() {
     let backend_dir = manifest_dir.join("../backend/hybrid");
     let sources = [
         backend_dir.join("hybrid.cpp"),
+        backend_dir.join("native_pipeline.cpp"),
         backend_dir.join("relevance.cpp"),
         backend_dir.join("mechanism.cpp"),
         backend_dir.join("query_intent.cpp"),
@@ -82,12 +88,17 @@ fn build_hybrid_backend() {
         backend_dir.join("reranker.cpp"),
         backend_dir.join("argument_builder.cpp"),
         backend_dir.join("format_parser.cpp"),
-        backend_dir.join("round_import.cpp"),
     ];
 
     for source in &sources {
         println!("cargo:rerun-if-changed={}", source.display());
     }
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest_dir
+            .join("../../backend/models/sqlite_schema.sql")
+            .display()
+    );
 
     let existing_sources = sources
         .iter()
@@ -97,11 +108,41 @@ fn build_hybrid_backend() {
         return;
     }
 
+    let cflags = std::process::Command::new("pkg-config")
+        .args(["--cflags", "minizip", "libxml-2.0"])
+        .output()
+        .expect("pkg-config is required to build the native DOCX importer");
+    if !cflags.status.success() {
+        panic!("pkg-config could not locate minizip and libxml-2.0");
+    }
+
     let mut build = cc::Build::new();
     build.cpp(true).std("c++17").include(&backend_dir);
+    for flag in String::from_utf8_lossy(&cflags.stdout).split_whitespace() {
+        if let Some(path) = flag.strip_prefix("-I") {
+            build.include(path);
+        } else {
+            build.flag(flag);
+        }
+    }
     for source in existing_sources {
         build.file(source);
     }
     build.compile("secret_agenda_hybrid");
+
+    let libs = std::process::Command::new("pkg-config")
+        .args(["--libs", "minizip", "libxml-2.0"])
+        .output()
+        .expect("pkg-config is required to link the native DOCX importer");
+    if !libs.status.success() {
+        panic!("pkg-config could not resolve native DOCX importer libraries");
+    }
+    for flag in String::from_utf8_lossy(&libs.stdout).split_whitespace() {
+        if let Some(path) = flag.strip_prefix("-L") {
+            println!("cargo:rustc-link-search=native={path}");
+        } else if let Some(name) = flag.strip_prefix("-l") {
+            println!("cargo:rustc-link-lib={name}");
+        }
+    }
     println!("cargo:rustc-link-lib=sqlite3");
 }
