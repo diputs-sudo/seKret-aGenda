@@ -49,6 +49,9 @@ struct HybridSearchRequest {
     std::size_t citation_limit = 20;
     bool include_diagnostics = false;
     bool analysis_mode = false;
+    bool full_context_rerank = false;
+    bool model_rerank = false;
+    std::size_t model_rerank_limit = 24;
 };
 
 struct HybridSearchResponse {
@@ -57,6 +60,7 @@ struct HybridSearchResponse {
     std::string main_claim;
     std::optional<std::string> uncertainty;
     std::vector<std::pair<std::string, double>> timings;
+    std::vector<std::string> logs;
 };
 
 struct HybridEngineOptions {
