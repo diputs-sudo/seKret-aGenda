@@ -1,12 +1,11 @@
 import roundFixture from "../mock/round.json";
 import oursEvidenceFixture from "../mock/evidence_ours.json";
-import opponentEvidenceFixture from "../mock/evidence_opponent.json";
 import searchResultsFixture from "../mock/search_results.json";
 import generatedResponseFixture from "../mock/generated_response.json";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const evidence = [...oursEvidenceFixture, ...opponentEvidenceFixture];
+const evidence = [...oursEvidenceFixture];
 
 function clone(value) {
   return structuredClone(value);
@@ -15,7 +14,7 @@ function clone(value) {
 function sourceFromFile(side, file) {
   return {
     id: crypto.randomUUID(),
-    filename: file?.name || `${side === "ours" ? "OUR" : "OPP"}_case.docx`,
+    filename: file?.name || "evidence-library.docx",
     path: file?.name || "browser-preview.docx",
     side,
     status: "loaded",
@@ -53,7 +52,7 @@ export const mockBackend = {
       sources: round.sources.map((source) => ({
         ...source,
         status: "indexing",
-        cardCount: source.side === "ours" ? 147 : 93,
+        cardCount: 147,
         parseProgress: 0,
         indexProgress: 0
       })),
@@ -79,23 +78,23 @@ export const mockBackend = {
         status: done ? "ready" : "indexing",
         parseProgress: Math.min(1, (tick + 1) / 5),
         indexProgress: Math.min(1, (tick + 1) / 10),
-        cardCount: source.cardCount || (source.side === "ours" ? 147 : 93)
+        cardCount: source.cardCount || (147)
       })),
       buildStages
     };
   },
 
-  async listEvidence({ scope = "both", query = "" } = {}) {
+  async listEvidence({ scope = "ours", query = "" } = {}) {
     await sleep(120);
     const normalized = query.trim().toLowerCase();
     return evidence.filter((card) => {
-      const sideMatch = scope === "both" || card.side === scope;
+      const sideMatch = scope === "ours" || !scope || card.side === "ours";
       const text = `${card.section} ${card.tag} ${card.author} ${card.year} ${card.body}`.toLowerCase();
       return sideMatch && (!normalized || text.includes(normalized));
     });
   },
 
-  async searchRound({ query = "", scope = "both", mode = "smart" } = {}) {
+  async searchRound({ query = "", scope = "ours", mode = "smart" } = {}) {
     await sleep(180);
     const scopedEvidence = await this.listEvidence({ scope });
     return searchResultsFixture
@@ -126,7 +125,7 @@ export const mockBackend = {
         ...round.flows,
         {
           id: crypto.randomUUID(),
-          opponentClaim: flow.opponentClaim,
+          prompt: flow.prompt || flow.opponentClaim || "Prep prompt",
           response: flow.response,
           evidenceIds: flow.evidenceIds || [],
           notes: flow.notes || ""
