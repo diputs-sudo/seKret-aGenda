@@ -30,6 +30,23 @@ private:
     OllamaOptions options_;
 };
 
+struct OllamaGenerationOptions {
+    std::string model = "qwen3:4b";
+    std::string base_url = "http://127.0.0.1:11434";
+    int timeout_seconds = 120;
+};
+
+class OllamaGenerator {
+public:
+    explicit OllamaGenerator(OllamaGenerationOptions options = {});
+
+    const std::string& model() const;
+    std::string generate(const std::string& prompt) const;
+
+private:
+    OllamaGenerationOptions options_;
+};
+
 std::vector<double> parse_ollama_embedding_response(const std::string& json);
 
 } // namespace sekret::hybrid
