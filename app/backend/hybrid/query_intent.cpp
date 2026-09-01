@@ -122,7 +122,10 @@ std::string strip_filters(const std::string& query) {
 }
 
 std::optional<std::string> opponent_claim(const std::string& text) {
-    static const std::regex pattern(R"(^\s*(?:opponent|they|other team)\s+(?:says?|argues?|claims?)\s+)", std::regex::icase);
+    static const std::regex pattern(
+        R"(^\s*(?:(?:the\s+)?opposing\s+team|opponent|they|other\s+team)\s+(?:says?|argues?|claims?)\s+(?:that\s+)?)",
+        std::regex::icase
+    );
     const auto stripped = std::regex_replace(text, pattern, "");
     if (trim_dots_spaces(stripped) != trim_dots_spaces(text) && !trim_dots_spaces(stripped).empty()) {
         return trim_dots_spaces(stripped);
