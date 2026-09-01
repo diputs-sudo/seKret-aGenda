@@ -137,6 +137,58 @@ std::string embedding_request_json(const std::string& model, const std::string& 
     return output.str();
 }
 
+std::size_t skip_ws(const std::string& text, std::size_t index);
+
+std::string generation_request_json(const std::string& model, const std::string& prompt) {
+    std::ostringstream output;
+    output << "{\"model\":\"" << json_escape(model) << "\",";
+    output << "\"prompt\":\"" << json_escape(prompt) << "\",";
+    output << "\"stream\":false,\"think\":false,\"options\":{\"temperature\":0}";
+    output << "}";
+    return output.str();
+}
+
+std::string json_string_field(const std::string& json, const std::string& key) {
+    const auto key_index = json.find("\"" + key + "\"");
+    if (key_index == std::string::npos) {
+        throw EmbeddingError("Ollama response did not include " + key + ".");
+    }
+    auto index = json.find(':', key_index + key.size() + 2);
+    if (index == std::string::npos) {
+        throw EmbeddingError("Ollama response JSON was invalid.");
+    }
+    index = skip_ws(json, index + 1);
+    if (index >= json.size() || json[index] != '"') {
+        throw EmbeddingError("Ollama response field was not a string.");
+    }
+    ++index;
+    std::string value;
+    while (index < json.size()) {
+        const char character = json[index++];
+        if (character == '"') {
+            return value;
+        }
+        if (character != '\\') {
+            value.push_back(character);
+            continue;
+        }
+        if (index >= json.size()) {
+            break;
+        }
+        const char escaped = json[index++];
+        switch (escaped) {
+            case 'n': value.push_back('\n'); break;
+            case 'r': value.push_back('\r'); break;
+            case 't': value.push_back('\t'); break;
+            case '"': value.push_back('"'); break;
+            case '\\': value.push_back('\\'); break;
+            case '/': value.push_back('/'); break;
+            default: value.push_back(escaped); break;
+        }
+    }
+    throw EmbeddingError("Ollama response string was incomplete.");
+}
+
 int connect_socket(const ParsedUrl& url, int timeout_seconds) {
     addrinfo hints{};
     hints.ai_socktype = SOCK_STREAM;
@@ -230,7 +282,7 @@ std::string post_json(const ParsedUrl& url, const std::string& path, const std::
     if (status_line.find(" 200 ") == std::string::npos) {
         const auto response_body = response.substr(header_end + 4);
         throw EmbeddingError(
-            "Ollama embedding request failed: " + status_line
+            "Ollama request failed: " + status_line
                 + (response_body.empty() ? std::string() : ": " + response_body)
         );
     }
@@ -267,6 +319,26 @@ std::vector<double> OllamaEmbedder::embed(const std::string& text) const {
     return parse_ollama_embedding_response(
         post_json(url, "/api/embeddings", body, options_.timeout_seconds)
     );
+}
+
+OllamaGenerator::OllamaGenerator(OllamaGenerationOptions options) : options_(std::move(options)) {
+    options_.model = env_or_default("SEKRET_RERANK_MODEL", options_.model);
+    options_.base_url = trim_trailing_slash(env_or_default("OLLAMA_BASE_URL", options_.base_url));
+}
+
+const std::string& OllamaGenerator::model() const {
+    return options_.model;
+}
+
+std::string OllamaGenerator::generate(const std::string& prompt) const {
+    const auto url = parse_http_url(options_.base_url);
+    const auto response = post_json(
+        url,
+        "/api/generate",
+        generation_request_json(options_.model, prompt),
+        options_.timeout_seconds
+    );
+    return json_string_field(response, "response");
 }
 
 std::vector<double> parse_ollama_embedding_response(const std::string& json) {
