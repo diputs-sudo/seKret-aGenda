@@ -1,6 +1,7 @@
 #include "hybrid.hpp"
 
 #include "argument_builder.hpp"
+#include "ollama_embedder.hpp"
 #include "fusion.hpp"
 #include "query_intent.hpp"
 #include "reranker.hpp"
@@ -15,6 +16,7 @@
 #include <exception>
 #include <map>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -177,7 +179,14 @@ std::string response_to_json(const HybridSearchResponse& response) {
         output << "\"" << json_escape(response.timings[index].first) << "\":"
                << response.timings[index].second;
     }
-    output << "}";
+    output << "},\"logs\":[";
+    for (std::size_t index = 0; index < response.logs.size(); ++index) {
+        if (index != 0) {
+            output << ",";
+        }
+        output << "\"" << json_escape(response.logs[index]) << "\"";
+    }
+    output << "]";
     output << "}";
     return output.str();
 }
@@ -285,10 +294,19 @@ HybridSearchRequest request_from_json_or_text(const std::string& request_json) {
             analysis_mode = json_bool_field(request_json, "analysis_mode");
         }
         request.analysis_mode = analysis_mode.value_or(false);
+        auto full_context_rerank = json_bool_field(request_json, "fullContextRerank");
+        request.full_context_rerank = full_context_rerank.value_or(false);
+        auto model_rerank = json_bool_field(request_json, "modelRerank");
+        request.model_rerank = model_rerank.value_or(false);
+        request.model_rerank_limit = json_size_field(request_json, "modelRerankLimit").value_or(request.model_rerank_limit);
     } else {
         request.query = request_json;
     }
     request.limit = std::max<std::size_t>(1, std::min<std::size_t>(request.limit, 100));
+    request.vector_limit = std::max<std::size_t>(1, std::min<std::size_t>(request.vector_limit, 100));
+    request.lexical_limit = std::max<std::size_t>(1, std::min<std::size_t>(request.lexical_limit, 100));
+    request.citation_limit = std::max<std::size_t>(1, std::min<std::size_t>(request.citation_limit, 100));
+    request.model_rerank_limit = std::max<std::size_t>(1, std::min<std::size_t>(request.model_rerank_limit, 40));
     return request;
 }
 
@@ -348,6 +366,41 @@ std::vector<RerankedCard> lookup_to_reranked(
         assessment.confidence = 1.0;
         assessment.reasons = {"direct " + source_name + " lookup"};
         results.push_back({row, assessment, reranker_input(intent, row)});
+    }
+    return results;
+}
+
+std::vector<RerankedCard> semantic_candidate_fallback(
+    const std::vector<RetrievedCard>& cards,
+    std::size_t limit
+) {
+    std::vector<RerankedCard> results;
+    std::set<std::pair<std::string, std::string>> seen;
+    results.reserve(std::min(limit, cards.size()));
+
+    for (auto card : cards) {
+        const auto key = std::make_pair(card.section, card.tag);
+        if (seen.count(key) != 0) {
+            continue;
+        }
+        seen.insert(key);
+
+        const auto score = card.retrieval_score > 0.0 ? card.retrieval_score : card.score;
+        CandidateAssessment assessment;
+        assessment.card_id = card.card_id.empty() ? card.id : card.card_id;
+        assessment.relevance_score = score;
+        assessment.relationship = Relationship::Background;
+        assessment.confidence = 0.35;
+        assessment.reasons = {
+            "semantic retrieval candidate",
+            "No card passed the lightweight lexical relevance gate.",
+        };
+        card.reranker_score = score;
+        card.score = score;
+        results.push_back({std::move(card), std::move(assessment), {}});
+        if (results.size() >= limit) {
+            break;
+        }
     }
     return results;
 }
@@ -524,6 +577,98 @@ std::vector<RetrievedCard> expand_cards(
 
 } // namespace
 
+std::string model_candidate_id(std::size_t index) {
+    std::ostringstream output;
+    output << "C";
+    if (index + 1 < 10) {
+        output << "0";
+    }
+    output << (index + 1);
+    return output.str();
+}
+
+std::string compact_prompt_text(std::string text, std::size_t max_length = 700) {
+    if (text.size() > max_length) {
+        text.resize(max_length);
+        text += "…";
+    }
+    return text;
+}
+
+std::vector<RerankedCard> model_rerank_cards(
+    const std::string& query,
+    std::vector<RerankedCard> candidates,
+    const HybridSearchRequest& request,
+    std::vector<std::string>& logs,
+    std::vector<std::pair<std::string, double>>& timings
+) {
+    if (!request.model_rerank || candidates.size() < 2) {
+        return candidates;
+    }
+
+    const auto started = Clock::now();
+    const auto candidate_count = std::min(candidates.size(), request.model_rerank_limit);
+    std::ostringstream prompt;
+    prompt << "Rank these evidence cards for the user's query. Use the original evidence only. "
+           << "Return ONLY the candidate IDs in best-to-worst order, separated by commas. "
+           << "Do not explain, add prose, or invent IDs.\n\nQUERY:\n"
+           << compact_prompt_text(query, 1000) << "\n\nCANDIDATES:\n";
+    for (std::size_t index = 0; index < candidate_count; ++index) {
+        const auto& card = candidates[index].card;
+        prompt << "[" << model_candidate_id(index) << "]\n";
+        prompt << "Claim: " << compact_prompt_text(card.tag, 300) << "\n";
+        prompt << "Highlights: " << compact_prompt_text(highlight_text(card), 700) << "\n\n";
+    }
+
+    try {
+        const OllamaGenerator generator;
+        const auto response = generator.generate(prompt.str());
+        std::vector<std::pair<std::size_t, std::size_t>> ranked_indexes;
+        std::set<std::size_t> seen;
+        for (std::size_t index = 0; index < candidate_count; ++index) {
+            const auto position = response.find(model_candidate_id(index));
+            if (position != std::string::npos) {
+                ranked_indexes.push_back({position, index});
+                seen.insert(index);
+            }
+        }
+        if (ranked_indexes.empty()) {
+            throw EmbeddingError("qwen3:4b did not return any valid candidate IDs.");
+        }
+        std::sort(ranked_indexes.begin(), ranked_indexes.end());
+
+        std::vector<RerankedCard> ranked;
+        ranked.reserve(candidates.size());
+        for (const auto& [position, index] : ranked_indexes) {
+            (void)position;
+            ranked.push_back(std::move(candidates[index]));
+        }
+        for (std::size_t index = 0; index < candidate_count; ++index) {
+            if (seen.count(index) == 0) {
+                ranked.push_back(std::move(candidates[index]));
+            }
+        }
+        for (std::size_t index = candidate_count; index < candidates.size(); ++index) {
+            ranked.push_back(std::move(candidates[index]));
+        }
+        for (std::size_t index = 0; index < ranked.size(); ++index) {
+            const double score = static_cast<double>(ranked.size() - index) / static_cast<double>(ranked.size());
+            ranked[index].assessment.relevance_score = score;
+            ranked[index].assessment.confidence = 1.0;
+            ranked[index].assessment.reasons.push_back("qwen3:4b ID-only rerank");
+            ranked[index].card.reranker_score = score;
+            ranked[index].card.score = score;
+        }
+        logs.push_back("Model rerank: qwen3:4b ranked " + std::to_string(candidate_count) + " retrieved candidates.");
+        add_timing(timings, "qwen ID-only rerank", started);
+        return ranked;
+    } catch (const std::exception& error) {
+        logs.push_back(std::string("WARNING: Model rerank unavailable; kept full-context ranking. ") + error.what());
+        add_timing(timings, "qwen ID-only rerank (fallback)", started);
+        return candidates;
+    }
+}
+
 class HybridEngine::Impl {
 public:
     explicit Impl(HybridEngineOptions options) : options_(std::move(options)) {
@@ -535,10 +680,15 @@ public:
     HybridSearchResponse search(const HybridSearchRequest& request) const {
         const auto overall_started = Clock::now();
         std::vector<std::pair<std::string, double>> timings;
+        std::vector<std::string> logs;
         const auto parse_started = Clock::now();
         const auto intent = parse_query_intent(request.query, request.mode);
         add_timing(timings, "query parse", parse_started);
         const auto limit = static_cast<std::size_t>(intent.requested_count.value_or(static_cast<int>(request.limit)));
+        logs.push_back("Native hybrid search started: semantic vectors + FTS + full-context rerank.");
+        if (intent.opponent_claim.has_value()) {
+            logs.push_back("Query framing removed; retrieved against the opponent claim itself.");
+        }
 
         std::vector<RerankedCard> selected;
         const auto direct_lookup_started = Clock::now();
@@ -565,6 +715,12 @@ public:
                 sources["author_citation"] = {};
             }
             add_timing(timings, "citation lookup", citation_started);
+            logs.push_back(
+                "Candidate retrieval: fast=" + std::to_string(sources["fast_vector"].size())
+                + ", deep=" + std::to_string(sources["deep_vector"].size())
+                + ", full-text=" + std::to_string(sources["sqlite_fts"].size())
+                + ", citation=" + std::to_string(sources["author_citation"].size()) + "."
+            );
 
             const auto fusion_started = Clock::now();
             auto fused = reciprocal_rank_fusion(sources);
@@ -584,9 +740,13 @@ public:
             add_timing(timings, "filters", filter_started);
 
             const auto rerank_started = Clock::now();
-            if (!request.analysis_mode) {
+            if (!request.analysis_mode && !request.full_context_rerank) {
                 selected = LightweightRelevanceReranker().rerank(text, filtered, limit);
+                if (selected.empty()) {
+                    selected = semantic_candidate_fallback(filtered, limit);
+                }
                 add_timing(timings, "lightweight rerank", rerank_started);
+                logs.push_back("Reranker: lightweight lexical fallback.");
             } else {
                 auto reranked = FullContextReranker().rerank(intent, filtered);
                 add_timing(timings, "full-context rerank", rerank_started);
@@ -604,7 +764,15 @@ public:
                     selected = general_accept(reranked);
                 }
                 add_timing(timings, "relevance gate", gate_started);
+                logs.push_back("Reranker: full-context evidence scoring.");
             }
+        }
+
+        if (request.model_rerank && !selected.empty()) {
+            selected = model_rerank_cards(retrieval_text(intent), std::move(selected), request, logs, timings);
+        }
+        if (!request.analysis_mode && selected.size() > limit) {
+            selected.resize(limit);
         }
 
         HybridSearchResponse response;
@@ -632,6 +800,7 @@ public:
         }
         add_timing(timings, "total", overall_started);
         response.timings = std::move(timings);
+        response.logs = std::move(logs);
         return response;
     }
 
