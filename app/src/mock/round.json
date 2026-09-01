@@ -1,16 +1,15 @@
 {
   "id": "round_mock_1",
-  "name": "Harvard Tournament Round",
+  "name": "Evidence Library",
   "status": "empty",
   "activeView": "setup",
   "sources": [],
   "buildStages": [
-    { "id": "file_loaded", "label": "File loaded", "status": "pending", "progress": 0 },
-    { "id": "structure", "label": "Structure parsed", "status": "pending", "progress": 0 },
-    { "id": "cards", "label": "Cards extracted", "status": "pending", "progress": 0 },
-    { "id": "sqlite", "label": "SQLite index", "status": "pending", "progress": 0 },
-    { "id": "vector", "label": "Vector index", "status": "pending", "progress": 0 },
-    { "id": "relationships", "label": "Relationship analysis", "status": "pending", "progress": 0 }
+    { "id": "file_loaded", "label": "Source loaded", "status": "pending", "progress": 0 },
+    { "id": "structure", "label": "Text extracted", "status": "pending", "progress": 0 },
+    { "id": "cards", "label": "Cards created", "status": "pending", "progress": 0 },
+    { "id": "sqlite", "label": "SQLite catalog", "status": "pending", "progress": 0 },
+    { "id": "vector", "label": "Vector index", "status": "pending", "progress": 0 }
   ],
   "flows": []
 }
