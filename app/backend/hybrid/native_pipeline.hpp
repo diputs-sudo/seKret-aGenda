@@ -28,6 +28,12 @@ struct NativeVectorQueryStats {
     double hydration_ms = 0.0;
 };
 
+NativeDocumentStats import_docx_to_sqlite_with_schema_text(
+    const std::string& docx_path,
+    const std::string& db_path,
+    const std::string& schema_sql
+);
+
 NativeDocumentStats import_docx_to_sqlite(
     const std::string& docx_path,
     const std::string& db_path,
@@ -49,3 +55,24 @@ std::vector<RetrievedCard> query_native_vectors(
 );
 
 } // namespace sekret::hybrid
+
+extern "C" {
+
+struct SekretNativePipelineJsonResult {
+    char* json;
+    char* error;
+};
+
+SekretNativePipelineJsonResult sekret_native_import_docx_json(
+    const char* docx_path,
+    const char* db_path,
+    const char* schema_sql
+);
+
+SekretNativePipelineJsonResult sekret_native_build_vectors_json(
+    const char* db_path,
+    const char* kind,
+    int reset
+);
+
+} // extern "C"
