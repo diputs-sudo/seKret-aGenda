@@ -13,6 +13,8 @@
 #include <chrono>
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -1004,7 +1006,7 @@ void insert_document(sqlite3* db, const NativeDocument& document) {
         "INSERT INTO evidence_cards (id, document_id, section_id, tag, card_name, argument_name, body, "
         "category, topical, side, source_path, content_hash, paragraph_start, paragraph_end, source_format, "
         "metadata_json, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, 'docx', ?, ?)"
+        "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'ours', ?, ?, ?, ?, 'docx', ?, ?)"
     );
     auto insert_citation_stmt = prepare(
         db,
@@ -1113,10 +1115,10 @@ std::size_t count_rows(sqlite3* db, const char* table) {
 
 } // namespace
 
-NativeDocumentStats import_docx_to_sqlite(
+NativeDocumentStats import_docx_to_sqlite_with_schema_text(
     const std::string& docx_path,
     const std::string& db_path,
-    const std::string& schema_path
+    const std::string& schema_sql
 ) {
     const auto document = parse_docx(docx_path);
     const std::filesystem::path target(db_path);
@@ -1133,7 +1135,7 @@ NativeDocumentStats import_docx_to_sqlite(
 
     const auto db = open_database(db_path);
     exec(db.get(), "PRAGMA foreign_keys = ON");
-    exec(db.get(), read_file(schema_path));
+    exec(db.get(), schema_sql);
     exec(db.get(), "BEGIN IMMEDIATE");
     try {
         insert_document(db.get(), document);
@@ -1150,6 +1152,14 @@ NativeDocumentStats import_docx_to_sqlite(
         count_rows(db.get(), "citations"),
         count_rows(db.get(), "highlights"),
     };
+}
+
+NativeDocumentStats import_docx_to_sqlite(
+    const std::string& docx_path,
+    const std::string& db_path,
+    const std::string& schema_path
+) {
+    return import_docx_to_sqlite_with_schema_text(docx_path, db_path, read_file(schema_path));
 }
 
 NativeVectorBuildStats build_native_vector_cache(
@@ -1271,3 +1281,93 @@ std::vector<RetrievedCard> query_native_vectors(
 }
 
 } // namespace sekret::hybrid
+
+namespace {
+
+std::string native_pipeline_json_escape(const std::string& value) {
+    std::ostringstream output;
+    for (const unsigned char character : value) {
+        switch (character) {
+            case '"': output << static_cast<char>(92) << '"'; break;
+            case '\\': output << static_cast<char>(92) << static_cast<char>(92); break;
+            case '\n': output << static_cast<char>(92) << 'n'; break;
+            case '\r': output << static_cast<char>(92) << 'r'; break;
+            case '\t': output << static_cast<char>(92) << 't'; break;
+            default:
+                if (character < 0x20) {
+                    constexpr char hex[] = "0123456789abcdef";
+                    output << static_cast<char>(92) << "u00" << hex[(character >> 4) & 0x0f] << hex[character & 0x0f];
+                } else {
+                    output << character;
+                }
+        }
+    }
+    return output.str();
+}
+
+char* native_pipeline_copy_string(const std::string& value) {
+    auto* result = static_cast<char*>(std::malloc(value.size() + 1));
+    if (result == nullptr) {
+        return nullptr;
+    }
+    std::memcpy(result, value.c_str(), value.size() + 1);
+    return result;
+}
+
+SekretNativePipelineJsonResult native_pipeline_error(const std::string& message) {
+    return {nullptr, native_pipeline_copy_string(message)};
+}
+
+} // namespace
+
+extern "C" {
+
+SekretNativePipelineJsonResult sekret_native_import_docx_json(
+    const char* docx_path,
+    const char* db_path,
+    const char* schema_sql
+) {
+    try {
+        if (docx_path == nullptr || db_path == nullptr || schema_sql == nullptr) {
+            throw std::invalid_argument("docx_path, db_path, and schema_sql are required.");
+        }
+        const auto stats = sekret::hybrid::import_docx_to_sqlite_with_schema_text(
+            docx_path, db_path, schema_sql
+        );
+        std::ostringstream json;
+        json << "{\"documentName\":\"" << native_pipeline_json_escape(stats.document_name)
+             << "\",\"sections\":" << stats.sections
+             << ",\"cards\":" << stats.cards
+             << ",\"citations\":" << stats.citations
+             << ",\"highlights\":" << stats.highlights << "}";
+        return {native_pipeline_copy_string(json.str()), nullptr};
+    } catch (const std::exception& error) {
+        return native_pipeline_error(error.what());
+    } catch (...) {
+        return native_pipeline_error("Unknown native import error.");
+    }
+}
+
+SekretNativePipelineJsonResult sekret_native_build_vectors_json(
+    const char* db_path,
+    const char* kind,
+    int reset
+) {
+    try {
+        if (db_path == nullptr) {
+            throw std::invalid_argument("db_path is required.");
+        }
+        const auto stats = sekret::hybrid::build_native_vector_cache(
+            db_path, kind == nullptr ? "all" : kind, reset != 0, 6000
+        );
+        std::ostringstream json;
+        json << "{\"fast\":" << stats.fast << ",\"deep\":" << stats.deep << "}";
+        return {native_pipeline_copy_string(json.str()), nullptr};
+    } catch (const std::exception& error) {
+        return native_pipeline_error(error.what());
+    } catch (...) {
+        return native_pipeline_error("Unknown native vector build error.");
+    }
+}
+
+} // extern "C"
