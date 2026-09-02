@@ -143,7 +143,7 @@ std::string generation_request_json(const std::string& model, const std::string&
     std::ostringstream output;
     output << "{\"model\":\"" << json_escape(model) << "\",";
     output << "\"prompt\":\"" << json_escape(prompt) << "\",";
-    output << "\"stream\":false,\"think\":false,\"options\":{\"temperature\":0}";
+    output << "\"stream\":false,\"think\":true,\"format\":\"json\",\"options\":{\"temperature\":0,\"num_predict\":512}";
     output << "}";
     return output.str();
 }
@@ -338,7 +338,19 @@ std::string OllamaGenerator::generate(const std::string& prompt) const {
         generation_request_json(options_.model, prompt),
         options_.timeout_seconds
     );
-    return json_string_field(response, "response");
+    const auto answer = json_string_field(response, "response");
+    if (!answer.empty()) {
+        return answer;
+    }
+    try {
+        const auto structured_thinking = json_string_field(response, "thinking");
+        if (structured_thinking.find("\"ranking\"") != std::string::npos) {
+            return structured_thinking;
+        }
+    } catch (const EmbeddingError&) {
+        // Some Ollama model templates provide no separate thinking field.
+    }
+    return answer;
 }
 
 std::vector<double> parse_ollama_embedding_response(const std::string& json) {
