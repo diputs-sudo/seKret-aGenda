@@ -133,6 +133,9 @@ fn build_hybrid_backend() {
                 // as <unzip.h>; vcpkg places them under include/minizip.
                 if package == "minizip" {
                     build.include(include_path.join("minizip"));
+                } else if package == "libxml2" {
+                    // vcpkg installs the public libxml headers in include/libxml2.
+                    build.include(include_path.join("libxml2"));
                 }
                 build.include(include_path);
             }
