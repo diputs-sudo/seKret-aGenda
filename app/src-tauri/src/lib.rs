@@ -2,8 +2,10 @@ mod hybrid;
 
 use rusqlite::{Connection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Manager;
@@ -13,6 +15,12 @@ const CARD_SEPARATOR_BYTES: &[u8] = include_bytes!(env!("CARD_SEPARATOR_BIN"));
 const CARD_SEPARATOR_SOURCE: &str = env!("CARD_SEPARATOR_SOURCE");
 const EMBEDDING_MODEL: &str = "nomic-embed-text";
 const RERANK_MODEL: &str = "qwen3:4b";
+#[cfg(target_os = "macos")]
+const MANAGED_OLLAMA_DOWNLOAD: &str = "https://ollama.com/download/Ollama-darwin.zip";
+
+// Startup and search can request the runtime at nearly the same time. Serialize
+// setup so we never launch two installers or two model downloads.
+static OLLAMA_RUNTIME_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,9 +149,9 @@ struct RoundAskResponse {
     results: Vec<RoundSearchResult>,
     generated: Option<GeneratedResponse>,
     logs: Vec<String>,
+    runtime: OllamaRuntimeStatus,
 }
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct OllamaRuntimeStatus {
     ready: bool,
@@ -378,6 +386,13 @@ fn build_round_library(
     request: RoundLibraryBuildRequest,
 ) -> Result<RoundLibraryBuildState, String> {
     let round_id = request.round_id.as_deref().unwrap_or("default-round");
+    let runtime = ensure_ollama_runtime();
+    if !runtime.ready {
+        return Err(format!(
+            "Ollama setup is incomplete; the library cannot be indexed yet. {}",
+            runtime.logs.join(" ")
+        ));
+    }
     let db_path = round_database_path(&app, round_id)?;
     let stats = hybrid::build_vectors(&db_path)?;
     let connection = Connection::open(&db_path).map_err(|error| error.to_string())?;
@@ -386,18 +401,21 @@ fn build_round_library(
             row.get::<_, usize>(0)
         })
         .map_err(|error| error.to_string())?;
+    let mut diagnostics = runtime.logs;
+    diagnostics.push(format!(
+        "Native C++ indexed {card_count} cards ({} fast, {} deep vectors).",
+        stats.fast, stats.deep
+    ));
 
     Ok(RoundLibraryBuildState {
         status: "ready".into(),
         card_count,
         fast_vectors: stats.fast,
         deep_vectors: stats.deep,
-        diagnostics: vec![format!(
-            "Native C++ indexed {card_count} cards ({} fast, {} deep vectors).",
-            stats.fast, stats.deep
-        )],
+        diagnostics,
     })
 }
+
 #[tauri::command]
 fn list_round_evidence(
     app: tauri::AppHandle,
@@ -414,17 +432,23 @@ fn list_round_evidence(
     };
     cards.map_err(|error| error.to_string())
 }
+
 #[tauri::command]
 fn ask_round(app: tauri::AppHandle, request: RoundAskQuery) -> Result<RoundAskResponse, String> {
+    let runtime = ensure_ollama_runtime();
     let db_path = existing_round_database_path(&app, request.round_id.as_deref())?;
     let scope = "ours";
     let mode = request.mode.as_deref().unwrap_or("smart");
     let limit = request.limit.unwrap_or(20).clamp(1, 100);
     let candidate_limit = (limit.saturating_mul(3)).clamp(50, 100);
     let trimmed = request.query.trim();
-    let mut logs = vec![format!(
+    let mut logs = runtime.logs.clone();
+    if !runtime.ready {
+        logs.push("WARNING: Ollama setup is incomplete; semantic retrieval may fall back to SQLite text search.".into());
+    }
+    logs.push(format!(
         "Search request: {limit} results from one-sided evidence library."
-    )];
+    ));
 
     let cards = if trimmed.is_empty() {
         logs.push("No query text supplied.".into());
@@ -437,9 +461,9 @@ fn ask_round(app: tauri::AppHandle, request: RoundAskQuery) -> Result<RoundAskRe
             scope: Some(scope.to_string()),
             include_diagnostics: request.include_diagnostics,
             analysis_mode: Some(false),
-            full_context_rerank: Some(true),
+            full_context_rerank: Some(false),
             model_rerank: Some(true),
-            model_rerank_limit: Some(limit.min(24)),
+            model_rerank_limit: Some(limit.min(12)),
             vector_limit: Some(candidate_limit),
             lexical_limit: Some(candidate_limit),
             citation_limit: Some(20),
@@ -495,9 +519,9 @@ fn ask_round(app: tauri::AppHandle, request: RoundAskQuery) -> Result<RoundAskRe
         results,
         generated,
         logs,
+        runtime,
     })
 }
-
 #[tauri::command]
 fn run_card_separator(
     app: tauri::AppHandle,
@@ -666,10 +690,32 @@ fn copy_evidence(app: tauri::AppHandle, card: EvidenceCard) -> Result<(), String
         .map_err(|error| error.to_string())
 }
 
+#[cfg(target_os = "macos")]
+fn managed_ollama_app_path() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| {
+        PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join("Secret Agenda")
+            .join("runtime")
+            .join("Ollama.app")
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn managed_ollama_executable() -> Option<PathBuf> {
+    managed_ollama_app_path()
+        .map(|app_path| app_path.join("Contents").join("Resources").join("ollama"))
+}
+
 fn find_ollama_executable() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("OLLAMA_BIN") {
         candidates.push(PathBuf::from(path));
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(path) = managed_ollama_executable() {
+        candidates.push(path);
     }
     candidates.extend([
         PathBuf::from("/usr/local/bin/ollama"),
@@ -714,11 +760,29 @@ fn ollama_has_model(models: &str, requested: &str) -> bool {
 fn start_ollama_server(binary: &Path, logs: &mut Vec<String>) {
     #[cfg(target_os = "macos")]
     {
-        if Path::new("/Applications/Ollama.app").exists()
-            && Command::new("open").args(["-a", "Ollama"]).spawn().is_ok()
-        {
-            logs.push("Ollama was installed but stopped; launched the Ollama app.".into());
-            return;
+        let canonical = binary
+            .canonicalize()
+            .unwrap_or_else(|_| binary.to_path_buf());
+        let app_bundle = canonical
+            .ancestors()
+            .find(|path| {
+                path.extension()
+                    .map(|extension| extension == "app")
+                    .unwrap_or(false)
+            })
+            .map(Path::to_path_buf)
+            .or_else(|| {
+                let system_app = PathBuf::from("/Applications/Ollama.app");
+                system_app.exists().then_some(system_app)
+            });
+        if let Some(app_bundle) = app_bundle {
+            if Command::new("open").arg(&app_bundle).spawn().is_ok() {
+                logs.push(format!(
+                    "Ollama was installed but stopped; launched {}.",
+                    app_bundle.display()
+                ));
+                return;
+            }
         }
     }
     match Command::new(binary).arg("serve").spawn() {
@@ -727,20 +791,106 @@ fn start_ollama_server(binary: &Path, logs: &mut Vec<String>) {
     }
 }
 
-fn install_ollama(logs: &mut Vec<String>) -> Result<PathBuf, String> {
-    logs.push("Ollama was not found; downloading the official Ollama installer.".into());
-    let output = Command::new("sh")
-        .args(["-lc", "curl -fsSL https://ollama.com/install.sh | sh"])
-        .output()
-        .map_err(|error| format!("Could not start the official Ollama installer: {error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "Official Ollama installation failed: {}",
-            command_text(&output)
+#[cfg(target_os = "macos")]
+fn install_managed_ollama_macos(logs: &mut Vec<String>) -> Result<PathBuf, String> {
+    let app_path = managed_ollama_app_path().ok_or_else(|| {
+        "Could not locate this user's home folder for Ollama installation.".to_string()
+    })?;
+    let runtime_directory = app_path
+        .parent()
+        .ok_or_else(|| "Managed Ollama installation path is invalid.".to_string())?;
+    fs::create_dir_all(runtime_directory).map_err(|error| {
+        format!(
+            "Could not create Secret Agenda's managed runtime directory {}: {error}",
+            runtime_directory.display()
+        )
+    })?;
+
+    if app_path.exists() {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default();
+        let backup_path = runtime_directory.join(format!("Ollama.app.incomplete-{timestamp}"));
+        fs::rename(&app_path, &backup_path).map_err(|error| {
+            format!(
+                "Could not preserve incomplete managed Ollama installation {}: {error}",
+                app_path.display()
+            )
+        })?;
+        logs.push(format!(
+            "Preserved an incomplete managed Ollama install at {}.",
+            backup_path.display()
         ));
     }
-    find_ollama_executable()
-        .ok_or_else(|| "Ollama installed but its command was not found afterwards.".into())
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let archive_path = std::env::temp_dir().join(format!("secret-agenda-ollama-{timestamp}.zip"));
+    logs.push("Ollama was not found; downloading a managed local copy.".into());
+    let download = Command::new("/usr/bin/curl")
+        .args(["--fail", "--show-error", "--location", "--output"])
+        .arg(&archive_path)
+        .arg(MANAGED_OLLAMA_DOWNLOAD)
+        .output()
+        .map_err(|error| format!("Could not start the Ollama download: {error}"))?;
+    if !download.status.success() {
+        return Err(format!(
+            "Ollama download failed: {}",
+            command_text(&download)
+        ));
+    }
+
+    logs.push("Installing Ollama into Secret Agenda's local runtime folder.".into());
+    let extraction = Command::new("/usr/bin/unzip")
+        .args(["-q"])
+        .arg(&archive_path)
+        .args(["-d"])
+        .arg(runtime_directory)
+        .output()
+        .map_err(|error| format!("Could not start the Ollama extraction: {error}"))?;
+    let _ = fs::remove_file(&archive_path);
+    if !extraction.status.success() {
+        return Err(format!(
+            "Ollama extraction failed: {}",
+            command_text(&extraction)
+        ));
+    }
+
+    let executable = managed_ollama_executable()
+        .filter(|path| path.is_file())
+        .ok_or_else(|| "Ollama extracted but its local command was not found.".to_string())?;
+    logs.push(format!(
+        "Ollama installed locally at {}; no system-wide setup is required.",
+        executable.display()
+    ));
+    Ok(executable)
+}
+
+fn install_ollama(logs: &mut Vec<String>) -> Result<PathBuf, String> {
+    #[cfg(target_os = "macos")]
+    {
+        install_managed_ollama_macos(logs)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        logs.push("Ollama was not found; downloading the official Ollama installer.".into());
+        let output = Command::new("sh")
+            .args(["-lc", "curl -fsSL https://ollama.com/install.sh | sh"])
+            .output()
+            .map_err(|error| format!("Could not start the official Ollama installer: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "Official Ollama installation failed: {}",
+                command_text(&output)
+            ));
+        }
+        find_ollama_executable()
+            .ok_or_else(|| "Ollama installed but its command was not found afterwards.".into())
+    }
 }
 
 fn ensure_ollama_model(
@@ -790,6 +940,9 @@ fn ensure_ollama_model(
 
 #[tauri::command]
 fn ensure_ollama_runtime() -> OllamaRuntimeStatus {
+    let _setup_guard = OLLAMA_RUNTIME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut logs = vec!["Checking local Ollama runtime.".into()];
     let binary = match find_ollama_executable() {
         Some(binary) => binary,
@@ -816,7 +969,7 @@ fn ensure_ollama_runtime() -> OllamaRuntimeStatus {
             logs.push(format!("Ollama server is not ready: {error}"));
             start_ollama_server(&binary, &mut logs);
             let mut ready_models = None;
-            for _ in 0..20 {
+            for _ in 0..120 {
                 thread::sleep(Duration::from_millis(500));
                 if let Ok(models) = list_ollama_models(&binary) {
                     ready_models = Some(models);
@@ -826,7 +979,7 @@ fn ensure_ollama_runtime() -> OllamaRuntimeStatus {
             match ready_models {
                 Some(models) => models,
                 None => {
-                    logs.push("ERROR: Ollama did not become ready within 10 seconds.".into());
+                    logs.push("ERROR: Ollama did not become ready within 60 seconds.".into());
                     return OllamaRuntimeStatus {
                         ready: false,
                         installed: true,
