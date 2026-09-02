@@ -89,6 +89,27 @@ Build a Windows `.exe` installer on Windows:
 npm run build:windows
 ```
 
+### Windows packaging
+
+The release installer is per-user (`currentUser`), so it does not require
+administrator rights. The native Windows build uses Visual Studio C++ tools and
+vcpkg only while *building* the app:
+
+```powershell
+vcpkg install minizip libxml2 sqlite3
+$env:VCPKG_ROOT = "C:\path\to\vcpkg"
+npm run build:windows
+```
+
+Those libraries are linked into the resulting app; a person using the `.exe`
+does not need Node, Rust, Python, vcpkg, or a separate C++ setup.
+
+On first launch, Secret Agenda checks for Ollama. If it is missing, it runs the
+official per-user Windows installer, starts the local service, and pulls
+`nomic-embed-text` and `qwen3:4b` automatically. The in-app logs expose each
+step and any failure. This needs an internet connection and enough local disk
+space for Ollama and the two model downloads.
+
 Useful frontend-only check:
 
 ```bash
