@@ -17,6 +17,8 @@ const EMBEDDING_MODEL: &str = "nomic-embed-text";
 const RERANK_MODEL: &str = "qwen3:4b";
 #[cfg(target_os = "macos")]
 const MANAGED_OLLAMA_DOWNLOAD: &str = "https://ollama.com/download/Ollama-darwin.zip";
+#[cfg(target_os = "windows")]
+const WINDOWS_OLLAMA_INSTALL_SCRIPT: &str = "https://ollama.com/install.ps1";
 
 // Startup and search can request the runtime at nearly the same time. Serialize
 // setup so we never launch two installers or two model downloads.
@@ -708,6 +710,16 @@ fn managed_ollama_executable() -> Option<PathBuf> {
         .map(|app_path| app_path.join("Contents").join("Resources").join("ollama"))
 }
 
+#[cfg(target_os = "windows")]
+fn windows_ollama_executable() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|local_app_data| {
+        PathBuf::from(local_app_data)
+            .join("Programs")
+            .join("Ollama")
+            .join("ollama.exe")
+    })
+}
+
 fn find_ollama_executable() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("OLLAMA_BIN") {
@@ -717,13 +729,24 @@ fn find_ollama_executable() -> Option<PathBuf> {
     if let Some(path) = managed_ollama_executable() {
         candidates.push(path);
     }
+    #[cfg(target_os = "windows")]
+    if let Some(path) = windows_ollama_executable() {
+        candidates.push(path);
+    }
+    #[cfg(not(target_os = "windows"))]
     candidates.extend([
         PathBuf::from("/usr/local/bin/ollama"),
         PathBuf::from("/opt/homebrew/bin/ollama"),
         PathBuf::from("/Applications/Ollama.app/Contents/Resources/ollama"),
     ]);
+    let command_name = if cfg!(target_os = "windows") {
+        "ollama.exe"
+    } else {
+        "ollama"
+    };
     if let Some(path) = std::env::var_os("PATH") {
-        candidates.extend(std::env::split_paths(&path).map(|directory| directory.join("ollama")));
+        candidates
+            .extend(std::env::split_paths(&path).map(|directory| directory.join(command_name)));
     }
     candidates.into_iter().find(|candidate| candidate.is_file())
 }
@@ -876,6 +899,7 @@ fn install_ollama(logs: &mut Vec<String>) -> Result<PathBuf, String> {
     }
 
     #[cfg(not(target_os = "macos"))]
+    #[cfg(not(target_os = "windows"))]
     {
         logs.push("Ollama was not found; downloading the official Ollama installer.".into());
         let output = Command::new("sh")
@@ -889,6 +913,35 @@ fn install_ollama(logs: &mut Vec<String>) -> Result<PathBuf, String> {
             ));
         }
         find_ollama_executable()
+            .ok_or_else(|| "Ollama installed but its command was not found afterwards.".into())
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        logs.push("Ollama was not found; running its official per-user installer.".into());
+        let command = format!(
+            "$ErrorActionPreference = 'Stop'; Invoke-RestMethod '{}' | Invoke-Expression",
+            WINDOWS_OLLAMA_INSTALL_SCRIPT
+        );
+        let output = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+            ])
+            .arg(command)
+            .output()
+            .map_err(|error| format!("Could not start the official Ollama installer: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "Official Ollama installation failed: {}",
+                command_text(&output)
+            ));
+        }
+        windows_ollama_executable()
+            .filter(|path| path.is_file())
             .ok_or_else(|| "Ollama installed but its command was not found afterwards.".into())
     }
 }
@@ -1355,7 +1408,7 @@ fn card_from_row(
 
 fn highlights_for_card(connection: &Connection, card_id: &str) -> SqlResult<Vec<Highlight>> {
     let mut statement = connection.prepare(
-        "SELECT text, coalesce(color, highlight_color, '') AS color FROM highlights WHERE card_id = ?1 ORDER BY order_index LIMIT 8",
+        "SELECT text, coalesce(color, highlight_color, '') AS color FROM highlights WHERE card_id = ?1 ORDER BY order_index",
     )?;
     let rows = statement.query_map([card_id], |row| {
         let color: String = row.get("color")?;
