@@ -52,6 +52,8 @@ struct HybridSearchRequest {
     bool full_context_rerank = false;
     bool model_rerank = false;
     std::size_t model_rerank_limit = 24;
+    // Debug-only: runs additional shuffled Qwen probes without changing normal results.
+    std::size_t model_rerank_debug_trials = 0;
 };
 
 struct HybridSearchResponse {
