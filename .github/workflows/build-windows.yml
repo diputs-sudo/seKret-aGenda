@@ -44,7 +44,7 @@ jobs:
           $vcpkgRoot = Join-Path $env:RUNNER_TEMP "vcpkg"
           git clone --depth 1 https://github.com/microsoft/vcpkg $vcpkgRoot
           & (Join-Path $vcpkgRoot "bootstrap-vcpkg.bat") -disableMetrics
-          & (Join-Path $vcpkgRoot "vcpkg.exe") install minizip libxml2 sqlite3 --triplet x64-windows
+          & (Join-Path $vcpkgRoot "vcpkg.exe") install minizip libxml2 sqlite3 --triplet x64-windows-static-md
           "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install JavaScript dependencies

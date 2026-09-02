@@ -1,0 +1,73 @@
+name: Build macOS app
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+    paths:
+      - app/**
+      - .github/workflows/build-macos.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: macOS (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install native DOCX dependencies
+        run: |
+          brew install minizip libxml2 pkg-config
+          echo "PKG_CONFIG_PATH=$(brew --prefix minizip)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Build app bundle
+        run: npm run build:mac
+
+      - name: Ad-hoc sign app bundle
+        run: |
+          APP="src-tauri/target/release/bundle/macos/Secret Agenda.app"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Create downloadable app archive
+        run: |
+          APP="src-tauri/target/release/bundle/macos/Secret Agenda.app"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "Secret-Agenda-macos-${{ matrix.arch }}.zip"
+
+      - name: Upload app archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: secret-agenda-macos-${{ matrix.arch }}
+          path: app/Secret-Agenda-macos-${{ matrix.arch }}.zip
+          if-no-files-found: error
+          retention-days: 14
