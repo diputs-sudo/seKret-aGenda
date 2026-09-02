@@ -1,15 +1,24 @@
 #include "ollama_embedder.hpp"
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
+#include <algorithm>
 #include <cerrno>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -18,6 +27,63 @@
 
 namespace sekret::hybrid {
 namespace {
+
+#if defined(_WIN32)
+using SocketHandle = SOCKET;
+using SocketResult = int;
+constexpr SocketHandle kInvalidSocket = INVALID_SOCKET;
+
+void initialize_socket_runtime() {
+    static const bool initialized = [] {
+        WSADATA data{};
+        return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    }();
+    if (!initialized) {
+        throw EmbeddingError("Could not initialize Windows networking for Ollama.");
+    }
+}
+
+void close_socket(SocketHandle socket) {
+    if (socket != kInvalidSocket) {
+        closesocket(socket);
+    }
+}
+
+bool socket_interrupted() {
+    return WSAGetLastError() == WSAEINTR;
+}
+
+void configure_socket_timeouts(SocketHandle socket, int timeout_seconds) {
+    const auto timeout_millis = static_cast<DWORD>(timeout_seconds * 1000);
+    setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO,
+        reinterpret_cast<const char*>(&timeout_millis), static_cast<int>(sizeof(timeout_millis)));
+    setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO,
+        reinterpret_cast<const char*>(&timeout_millis), static_cast<int>(sizeof(timeout_millis)));
+}
+#else
+using SocketHandle = int;
+using SocketResult = ssize_t;
+constexpr SocketHandle kInvalidSocket = -1;
+
+void initialize_socket_runtime() {}
+
+void close_socket(SocketHandle socket) {
+    if (socket != kInvalidSocket) {
+        close(socket);
+    }
+}
+
+bool socket_interrupted() {
+    return errno == EINTR;
+}
+
+void configure_socket_timeouts(SocketHandle socket, int timeout_seconds) {
+    timeval timeout{};
+    timeout.tv_sec = timeout_seconds;
+    setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+}
+#endif
 
 struct ParsedUrl {
     std::string host;
@@ -189,7 +255,9 @@ std::string json_string_field(const std::string& json, const std::string& key) {
     throw EmbeddingError("Ollama response string was incomplete.");
 }
 
-int connect_socket(const ParsedUrl& url, int timeout_seconds) {
+SocketHandle connect_socket(const ParsedUrl& url, int timeout_seconds) {
+    initialize_socket_runtime();
+
     addrinfo hints{};
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_family = AF_UNSPEC;
@@ -202,29 +270,30 @@ int connect_socket(const ParsedUrl& url, int timeout_seconds) {
     std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> results(raw_results, freeaddrinfo);
 
     for (auto* address = results.get(); address != nullptr; address = address->ai_next) {
-        const int fd = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
-        if (fd < 0) {
+        const SocketHandle socket_handle = ::socket(
+            address->ai_family, address->ai_socktype, address->ai_protocol
+        );
+        if (socket_handle == kInvalidSocket) {
             continue;
         }
 
-        timeval timeout{};
-        timeout.tv_sec = timeout_seconds;
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-
-        if (connect(fd, address->ai_addr, address->ai_addrlen) == 0) {
-            return fd;
+        configure_socket_timeouts(socket_handle, timeout_seconds);
+        if (::connect(socket_handle, address->ai_addr, address->ai_addrlen) == 0) {
+            return socket_handle;
         }
-        close(fd);
+        close_socket(socket_handle);
     }
     throw EmbeddingError("Could not reach Ollama. Is Ollama running?");
 }
 
-void send_all(int fd, const std::string& data) {
+void send_all(SocketHandle socket_handle, const std::string& data) {
     const char* cursor = data.data();
     std::size_t remaining = data.size();
     while (remaining > 0) {
-        const ssize_t sent = send(fd, cursor, remaining, 0);
+        const auto write_size = static_cast<int>(std::min<std::size_t>(
+            remaining, static_cast<std::size_t>(std::numeric_limits<int>::max())
+        ));
+        const SocketResult sent = ::send(socket_handle, cursor, write_size, 0);
         if (sent <= 0) {
             throw EmbeddingError("Failed to send request to Ollama.");
         }
@@ -233,16 +302,16 @@ void send_all(int fd, const std::string& data) {
     }
 }
 
-std::string recv_all(int fd) {
+std::string recv_all(SocketHandle socket_handle) {
     std::string response;
     char buffer[8192];
     while (true) {
-        const ssize_t count = recv(fd, buffer, sizeof(buffer), 0);
+        const SocketResult count = ::recv(socket_handle, buffer, sizeof(buffer), 0);
         if (count == 0) {
             break;
         }
         if (count < 0) {
-            if (errno == EINTR) {
+            if (socket_interrupted()) {
                 continue;
             }
             throw EmbeddingError("Failed while reading Ollama response.");
@@ -253,13 +322,16 @@ std::string recv_all(int fd) {
 }
 
 std::string post_json(const ParsedUrl& url, const std::string& path, const std::string& body, int timeout_seconds) {
-    const int fd = connect_socket(url, timeout_seconds);
-    std::unique_ptr<int, void (*)(int*)> guard(new int(fd), [](int* value) {
+    const SocketHandle socket_handle = connect_socket(url, timeout_seconds);
+    const auto close_handle = [](SocketHandle* value) {
         if (value != nullptr) {
-            close(*value);
+            close_socket(*value);
             delete value;
         }
-    });
+    };
+    std::unique_ptr<SocketHandle, decltype(close_handle)> guard(
+        new SocketHandle(socket_handle), close_handle
+    );
 
     const std::string request_path = url.prefix_path + path;
     std::ostringstream request;
@@ -270,8 +342,8 @@ std::string post_json(const ParsedUrl& url, const std::string& path, const std::
     request << "Connection: close\r\n\r\n";
     request << body;
 
-    send_all(fd, request.str());
-    auto response = recv_all(fd);
+    send_all(socket_handle, request.str());
+    auto response = recv_all(socket_handle);
     auto header_end = response.find("\r\n\r\n");
     if (header_end == std::string::npos) {
         throw EmbeddingError("Ollama returned an invalid HTTP response.");
