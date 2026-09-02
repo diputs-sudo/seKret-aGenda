@@ -22,11 +22,9 @@ const DEFAULT_TABS = [
 
 const commands = [
   { id: "search.evidence", title: "Search evidence", keywords: "backfile query cards" },
-  { id: "draft.rebuttal", title: "Draft rebuttal", keywords: "ai response argument" },
   { id: "document.import", title: "Add source document", keywords: "docx library" },
   { id: "browser.open", title: "Open website", keywords: "web google docs research" },
   { id: "round.start", title: "Open evidence library", keywords: "source document import prep" },
-  { id: "round.ask", title: "Draft from evidence", keywords: "grounded answer response evidence" },
   { id: "tools.cardSeparator", title: "Card separator", keywords: "docx split cards highlights citation jsonl" },
   { id: "settings.open", title: "Open settings", keywords: "appearance developer search ai" },
 ];
@@ -35,8 +33,6 @@ const ROUND_VIEWS = [
   { id: "setup", label: "Library", requiresReady: false },
   { id: "cards", label: "Cards", requiresReady: false },
   { id: "evidence", label: "Search", requiresReady: false },
-  { id: "flow", label: "Board", requiresReady: false },
-  { id: "ask", label: "Draft", requiresReady: false },
 ];
 
 const ACTIVITY_IDS = ["round", "tools"];
@@ -282,10 +278,13 @@ async function runSearch(queryText) {
   state.search.logs = ["Checking local Ollama and search pipeline…"];
   render();
 
+  if (isTauri() && !state.search.runtime?.ready) {
+    await ensureSearchRuntime(false);
+    render();
+  }
+
   try {
     if (isTauri() && state.round?.id) {
-      const runtime = await ensureSearchRuntime(false);
-      const runtimeLogs = [...state.search.logs];
       const response = await call("ask_round", {
         request: {
           roundId: state.round.id,
@@ -297,8 +296,9 @@ async function runSearch(queryText) {
           includeDiagnostics: true,
         },
       });
-      state.search.logs = [...runtimeLogs, ...(response.logs || [])];
-      if (runtime && !runtime.ready) {
+      state.search.runtime = response.runtime || null;
+      state.search.logs = response.logs || [];
+      if (response.runtime && !response.runtime.ready) {
         state.search.logs.push("WARNING: Ollama was not fully ready; review the runtime entries above.");
       }
       state.search.results = sortSearchCards((response.results || []).map((result) => ({
@@ -411,10 +411,6 @@ function executeCommand(id, payload = "") {
     state.settingsOpen = true;
   } else if (id === "browser.open") {
     call("open_external_url", { url: commandPayload || "https://docs.google.com" }).catch(console.error);
-  } else if (id === "draft.rebuttal" || id === "round.ask") {
-    state.activeActivity = "round";
-    state.roundView = "ask";
-    ensureRound();
   } else if (id === "round.start" || id === "document.import") {
     state.activeActivity = "round";
     state.roundView = "setup";
@@ -959,7 +955,7 @@ function basename(path) {
 function renderRoundView() {
   const library = state.round;
   const currentView = ROUND_VIEWS.some((view) => view.id === state.roundView) ? state.roundView : "setup";
-  const pageTitle = { setup: "Library", cards: "Cards", evidence: "Search", flow: "Board", ask: "Draft" };
+  const pageTitle = { setup: "Library", cards: "Cards", evidence: "Search" };
   return `
     <section class="view round-view">
       <header class="round-header round-workspace-header compact-page-header">
@@ -969,8 +965,6 @@ function renderRoundView() {
       ${currentView === "setup" ? renderRoundSetup(library) : ""}
       ${currentView === "cards" ? renderRoundCards(library) : ""}
       ${currentView === "evidence" ? renderRoundEvidence() : ""}
-      ${currentView === "flow" ? renderRoundFlow(library) : ""}
-      ${currentView === "ask" ? renderRoundAsk() : ""}
     </section>
   `;
 }
@@ -1095,11 +1089,6 @@ function renderRoundEvidence() {
         <input name="query" value="${escapeAttr(query)}" placeholder="Search evidence" autocomplete="off" autofocus />
         <button>${state.search.loading ? "…" : "Search"}</button>
       </form>
-      <div class="search-suggestions">
-        <button type="button" data-search-suggestion="consumer protections">consumer protection</button>
-        <button type="button" data-search-suggestion="federal regulation">federal regulation</button>
-        <button type="button" data-search-suggestion="illegal betting markets">illegal betting</button>
-      </div>
       <div class="view-meta"><span>${resultLabel}</span></div>
       ${state.search.error ? `<div class="warning">${escapeHtml(state.search.error)}</div>` : ""}
       ${renderSearchLog()}
@@ -1263,12 +1252,6 @@ function renderSearchView(tabState = {}) {
         <input name="query" value="${escapeAttr(query)}" placeholder="Try “state regulation reduces illegal betting”" autocomplete="off" autofocus />
         <button>Search</button>
       </form>
-      <div class="search-suggestions">
-        <span>Try:</span>
-        <button type="button" data-search-suggestion="consumer protections">consumer protections</button>
-        <button type="button" data-search-suggestion="federal regulation">federal regulation</button>
-        <button type="button" data-search-suggestion="illegal betting markets">illegal betting markets</button>
-      </div>
       <div class="view-meta">
         <span>${resultLabel}</span>
         ${state.settings.developerSearchDiagnostics ? `<span class="diagnostic-pill">Diagnostics on</span>` : ""}
@@ -1520,15 +1503,6 @@ app.addEventListener("click", (event) => {
     if (state.roundView === "cards" && state.round?.status === "ready") {
       refreshRoundEvidence();
     }
-    return;
-  }
-
-  const searchSuggestionButton = target.closest("[data-search-suggestion]");
-  if (searchSuggestionButton) {
-    state.activeActivity = "round";
-    state.roundView = "evidence";
-    runSearch(searchSuggestionButton.dataset.searchSuggestion || "");
-    saveWorkspaceSoon();
     return;
   }
 
