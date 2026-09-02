@@ -129,12 +129,12 @@ fn build_hybrid_backend() {
                 )
             });
             for include_path in library.include_paths {
-                // The portable importer includes the classic minizip headers
-                // as <unzip.h>; vcpkg places them under include/minizip.
+                // The portable importer uses the classic minizip and libxml2
+                // include forms (<unzip.h> and <libxml/parser.h>). vcpkg keeps
+                // their headers in package-specific subdirectories.
                 if package == "minizip" {
                     build.include(include_path.join("minizip"));
                 } else if package == "libxml2" {
-                    // vcpkg installs the public libxml headers in include/libxml2.
                     build.include(include_path.join("libxml2"));
                 }
                 build.include(include_path);
