@@ -27,6 +27,9 @@ struct Arguments {
     bool debug = false;
     bool concept_debug = false;
     bool timings = false;
+    bool full_context_rerank = false;
+    bool model_rerank = false;
+    std::size_t model_rerank_debug_trials = 0;
 };
 
 [[noreturn]] void usage(const std::string& error = {}) {
@@ -38,8 +41,8 @@ struct Arguments {
 Usage:
   scripts/native_pipeline.sh import-docx <case.docx> --db <database.sqlite3>
   scripts/native_pipeline.sh build-vector --db <database.sqlite3> [--kind fast|deep|all] [--reset]
+  scripts/native_pipeline.sh query <query> --db <database.sqlite3> [--limit N] [--top N] [--full-context] [--model-rerank] [--verify-model-rerank N] [--debug] [--timings]
   scripts/native_pipeline.sh query-vector <query> --db <database.sqlite3> [--limit N] [--rerank] [--top N] [--timings]
-  scripts/native_pipeline.sh query <query> --db <database.sqlite3> [--limit N] [--top N] [--debug] [--timings]
   scripts/native_pipeline.sh analyze <query> --db <database.sqlite3> [--limit N] [--top N] [--debug] [--concept-debug] [--timings]
 
 `query-hybrid` remains a compatibility alias for the lightweight `query` command.
@@ -108,6 +111,16 @@ Arguments parse_arguments(int argc, char** argv) {
             result.max_chars = parse_size(flag, value);
         } else if (flag == "--reset") {
             result.reset = true;
+        } else if (flag == "--full-context") {
+            result.full_context_rerank = true;
+        } else if (flag == "--model-rerank") {
+            result.model_rerank = true;
+        } else if (flag == "--verify-model-rerank") {
+            std::string value;
+            require_value(value);
+            result.model_rerank_debug_trials = parse_size(flag, value);
+            result.model_rerank = true;
+            result.debug = true;
         } else if (flag == "--rerank") {
             result.rerank = true;
         } else if (flag == "--debug") {
@@ -204,6 +217,9 @@ void print_hybrid_results(const Arguments& arguments) {
     sekret::hybrid::HybridEngine engine({arguments.db, {}});
     sekret::hybrid::HybridSearchRequest request;
     request.query = arguments.query_or_docx;
+    request.full_context_rerank = arguments.full_context_rerank;
+    request.model_rerank = arguments.model_rerank;
+    request.model_rerank_debug_trials = arguments.model_rerank_debug_trials;
     request.limit = arguments.command == "query-hybrid" ? arguments.limit : arguments.top;
     request.vector_limit = arguments.limit;
     request.lexical_limit = arguments.limit;
@@ -220,6 +236,13 @@ void print_hybrid_results(const Arguments& arguments) {
         std::cout << "Retrieval text: " << sekret::hybrid::retrieval_text(intent) << "\n";
         std::cout << "Opponent claim: " << intent.opponent_claim.value_or("") << "\n";
         const auto& concepts = arguments.concept_debug ? intent.concepts : intent.phrase_concepts;
+        if (!response.logs.empty()) {
+            std::cout << "Pipeline log\n" << std::string(45, '-') << "\n";
+            for (const auto& line : response.logs) {
+                std::cout << line << "\n";
+            }
+            std::cout << "\n";
+        }
         std::cout << (arguments.concept_debug ? "Expanded concepts: " : "Concepts: ");
         for (std::size_t index = 0; index < concepts.size(); ++index) {
             if (index != 0) {
