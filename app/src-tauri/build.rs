@@ -70,6 +70,7 @@ fn build_card_separator() {
 }
 
 fn build_hybrid_backend() {
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let manifest_dir = std::path::PathBuf::from(
         std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by Cargo"),
     );
@@ -108,21 +109,48 @@ fn build_hybrid_backend() {
         return;
     }
 
-    let cflags = std::process::Command::new("pkg-config")
-        .args(["--cflags", "minizip", "libxml-2.0"])
-        .output()
-        .expect("pkg-config is required to build the native DOCX importer");
-    if !cflags.status.success() {
-        panic!("pkg-config could not locate minizip and libxml-2.0");
-    }
-
     let mut build = cc::Build::new();
-    build.cpp(true).std("c++17").include(&backend_dir);
-    for flag in String::from_utf8_lossy(&cflags.stdout).split_whitespace() {
-        if let Some(path) = flag.strip_prefix("-I") {
-            build.include(path);
-        } else {
-            build.flag(flag);
+    build
+        .cpp(true)
+        .std("c++17")
+        .flag_if_supported("/EHsc")
+        .include(&backend_dir);
+
+    if target_os == "windows" {
+        // vcpkg supplies the headers and link metadata for the native Windows
+        // build. These dependencies are compiled into the app; end users do
+        // not need vcpkg or any external runtime.
+        for package in ["minizip", "libxml2", "sqlite3"] {
+            let mut config = vcpkg::Config::new();
+            config.emit_includes(false);
+            let library = config.find_package(package).unwrap_or_else(|error| {
+                panic!(
+                    "Windows native build requires vcpkg package `{package}`. Run `vcpkg install minizip libxml2 sqlite3`: {error}"
+                )
+            });
+            for include_path in library.include_paths {
+                // The portable importer includes the classic minizip headers
+                // as <unzip.h>; vcpkg places them under include/minizip.
+                if package == "minizip" {
+                    build.include(include_path.join("minizip"));
+                }
+                build.include(include_path);
+            }
+        }
+    } else {
+        let cflags = std::process::Command::new("pkg-config")
+            .args(["--cflags", "minizip", "libxml-2.0"])
+            .output()
+            .expect("pkg-config is required to build the native DOCX importer");
+        if !cflags.status.success() {
+            panic!("pkg-config could not locate minizip and libxml-2.0");
+        }
+        for flag in String::from_utf8_lossy(&cflags.stdout).split_whitespace() {
+            if let Some(path) = flag.strip_prefix("-I") {
+                build.include(path);
+            } else {
+                build.flag(flag);
+            }
         }
     }
     for source in existing_sources {
@@ -130,19 +158,25 @@ fn build_hybrid_backend() {
     }
     build.compile("secret_agenda_hybrid");
 
-    let libs = std::process::Command::new("pkg-config")
-        .args(["--libs", "minizip", "libxml-2.0"])
-        .output()
-        .expect("pkg-config is required to link the native DOCX importer");
-    if !libs.status.success() {
-        panic!("pkg-config could not resolve native DOCX importer libraries");
-    }
-    for flag in String::from_utf8_lossy(&libs.stdout).split_whitespace() {
-        if let Some(path) = flag.strip_prefix("-L") {
-            println!("cargo:rustc-link-search=native={path}");
-        } else if let Some(name) = flag.strip_prefix("-l") {
-            println!("cargo:rustc-link-lib={name}");
+    if target_os == "windows" {
+        // Winsock backs the native HTTP client used for Ollama embeddings and
+        // reranking. vcpkg emits linkage for the other three libraries.
+        println!("cargo:rustc-link-lib=ws2_32");
+    } else {
+        let libs = std::process::Command::new("pkg-config")
+            .args(["--libs", "minizip", "libxml-2.0"])
+            .output()
+            .expect("pkg-config is required to link the native DOCX importer");
+        if !libs.status.success() {
+            panic!("pkg-config could not resolve native DOCX importer libraries");
         }
+        for flag in String::from_utf8_lossy(&libs.stdout).split_whitespace() {
+            if let Some(path) = flag.strip_prefix("-L") {
+                println!("cargo:rustc-link-search=native={path}");
+            } else if let Some(name) = flag.strip_prefix("-l") {
+                println!("cargo:rustc-link-lib={name}");
+            }
+        }
+        println!("cargo:rustc-link-lib=sqlite3");
     }
-    println!("cargo:rustc-link-lib=sqlite3");
 }
