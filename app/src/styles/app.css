@@ -2450,28 +2450,20 @@ body.is-resizing .resize-handle::after {
   line-height: 1.58;
 }
 
-.result-highlights {
-  display: grid;
+.result-highlight-output {
   grid-column: 1 / -1;
-  gap: 7px;
-  margin: 15px 0;
-}
-
-.result-highlights p {
-  margin: 0;
+  margin: 10px 0 15px;
   border-left: 3px solid var(--warning);
-  border-radius: 0 7px 7px 0;
+  border-radius: 0 8px 8px 0;
   background: color-mix(in srgb, var(--warning) 10%, var(--surface));
   color: var(--text-primary);
-  padding: 9px 11px;
-  font-size: 13px;
+  padding: 13px 15px;
+  font-size: 14px;
   font-weight: 600;
-  line-height: 1.48;
+  line-height: 1.55;
 }
 
-.result-highlights .result-no-highlights {
-  border-left-color: var(--border);
-  background: var(--surface-raised);
+.result-no-highlights {
   color: var(--text-muted);
   font-weight: 500;
 }
