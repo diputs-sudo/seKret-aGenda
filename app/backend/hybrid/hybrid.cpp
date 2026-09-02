@@ -4,6 +4,7 @@
 #include "ollama_embedder.hpp"
 #include "fusion.hpp"
 #include "query_intent.hpp"
+#include "relevance.hpp"
 #include "reranker.hpp"
 #include "sqlite_store.hpp"
 #include "vector_store.hpp"
@@ -15,6 +16,7 @@
 #include <cstring>
 #include <exception>
 #include <map>
+#include <random>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -299,6 +301,7 @@ HybridSearchRequest request_from_json_or_text(const std::string& request_json) {
         auto model_rerank = json_bool_field(request_json, "modelRerank");
         request.model_rerank = model_rerank.value_or(false);
         request.model_rerank_limit = json_size_field(request_json, "modelRerankLimit").value_or(request.model_rerank_limit);
+        request.model_rerank_debug_trials = json_size_field(request_json, "modelRerankDebugTrials").value_or(0);
     } else {
         request.query = request_json;
     }
@@ -307,6 +310,7 @@ HybridSearchRequest request_from_json_or_text(const std::string& request_json) {
     request.lexical_limit = std::max<std::size_t>(1, std::min<std::size_t>(request.lexical_limit, 100));
     request.citation_limit = std::max<std::size_t>(1, std::min<std::size_t>(request.citation_limit, 100));
     request.model_rerank_limit = std::max<std::size_t>(1, std::min<std::size_t>(request.model_rerank_limit, 40));
+    request.model_rerank_debug_trials = std::min<std::size_t>(request.model_rerank_debug_trials, 5);
     return request;
 }
 
@@ -393,7 +397,7 @@ std::vector<RerankedCard> semantic_candidate_fallback(
         assessment.confidence = 0.35;
         assessment.reasons = {
             "semantic retrieval candidate",
-            "No card passed the lightweight lexical relevance gate.",
+            "Preserved from the high-recall hybrid candidate set.",
         };
         card.reranker_score = score;
         card.score = score;
@@ -595,6 +599,113 @@ std::string compact_prompt_text(std::string text, std::size_t max_length = 700) 
     return text;
 }
 
+std::string debug_card_label(const RerankedCard& candidate, const std::string& label) {
+    const auto& card = candidate.card;
+    const auto card_id = card.card_id.empty() ? card.id : card.card_id;
+    return label + "=" + card_id + " [" + compact_prompt_text(card.tag, 90) + "]";
+}
+
+std::string debug_candidate_order(
+    const std::vector<RerankedCard>& candidates,
+    const std::string& prefix
+) {
+    std::ostringstream output;
+    for (std::size_t index = 0; index < candidates.size(); ++index) {
+        if (index != 0) {
+            output << " | ";
+        }
+        const auto padded_index = index + 1 < 10 ? "0" : "";
+        const auto label = prefix == "C"
+            ? model_candidate_id(index)
+            : prefix + padded_index + std::to_string(index + 1);
+        output << debug_card_label(candidates[index], label);
+    }
+    return output.str();
+}
+
+void run_model_rerank_shuffle_probes(
+    const std::string& query,
+    const std::vector<RerankedCard>& retrieval_candidates,
+    std::size_t candidate_limit,
+    std::size_t trials,
+    const OllamaGenerator& generator,
+    std::vector<std::string>& logs,
+    std::vector<std::pair<std::string, double>>& timings
+) {
+    const auto candidate_count = std::min(retrieval_candidates.size(), candidate_limit);
+    if (candidate_count < 2 || trials == 0) {
+        return;
+    }
+
+    std::vector<RerankedCard> original(
+        retrieval_candidates.begin(),
+        retrieval_candidates.begin() + static_cast<std::ptrdiff_t>(candidate_count)
+    );
+    std::random_device seed_source;
+    const auto seed = seed_source();
+    std::mt19937 random(seed);
+    const auto top_count = std::min<std::size_t>(5, candidate_count);
+
+    logs.push_back("=== Qwen shuffle verification (debug only; normal result is unchanged) ===");
+    logs.push_back("Probe seed: " + std::to_string(seed) + ".");
+    logs.push_back("Original retrieval order: " + debug_candidate_order(original, "R"));
+
+    for (std::size_t trial = 0; trial < trials; ++trial) {
+        const auto started = Clock::now();
+        auto shuffled = original;
+        std::shuffle(shuffled.begin(), shuffled.end(), random);
+        logs.push_back(
+            "Trial " + std::to_string(trial + 1) + " shuffled prompt mapping: "
+                + debug_candidate_order(shuffled, "C")
+        );
+
+        std::ostringstream prompt;
+        prompt << "Select the " << top_count << " evidence cards most relevant to the user's query. "
+               << "Use the original evidence only. Return ONLY valid JSON in this exact shape: "
+               << "{\"ranking\":[\"C01\",\"C02\"]}. Include exactly " << top_count
+               << " listed IDs in best-to-worst order. Do not explain or add prose.\n\nQUERY:\n"
+               << compact_prompt_text(query, 600) << "\n\nCANDIDATES:\n";
+        for (std::size_t index = 0; index < shuffled.size(); ++index) {
+            const auto& card = shuffled[index].card;
+            prompt << "[" << model_candidate_id(index) << "]\n";
+            prompt << "Claim: " << compact_prompt_text(card.tag, 180) << "\n";
+            prompt << "Highlights: " << compact_prompt_text(highlight_text(card), 350) << "\n\n";
+        }
+
+        try {
+            const auto response = generator.generate(prompt.str());
+            logs.push_back("Trial " + std::to_string(trial + 1) + " raw Qwen response: " + response);
+
+            std::vector<std::pair<std::size_t, std::size_t>> ranked_indexes;
+            for (std::size_t index = 0; index < shuffled.size(); ++index) {
+                const auto position = response.find(model_candidate_id(index));
+                if (position != std::string::npos) {
+                    ranked_indexes.push_back({position, index});
+                }
+            }
+            std::sort(ranked_indexes.begin(), ranked_indexes.end());
+
+            std::ostringstream resolved;
+            for (std::size_t index = 0; index < ranked_indexes.size(); ++index) {
+                if (index != 0) {
+                    resolved << " | ";
+                }
+                const auto candidate_index = ranked_indexes[index].second;
+                resolved << debug_card_label(shuffled[candidate_index], model_candidate_id(candidate_index));
+            }
+            logs.push_back(
+                "Trial " + std::to_string(trial + 1) + " final resolved card order: "
+                    + (resolved.str().empty() ? std::string("<no valid candidate IDs>") : resolved.str())
+            );
+        } catch (const std::exception& error) {
+            logs.push_back(
+                "ERROR: Trial " + std::to_string(trial + 1) + " Qwen probe failed: " + error.what()
+            );
+        }
+        add_timing(timings, "qwen shuffle probe " + std::to_string(trial + 1), started);
+    }
+}
+
 std::vector<RerankedCard> model_rerank_cards(
     const std::string& query,
     std::vector<RerankedCard> candidates,
@@ -608,21 +719,23 @@ std::vector<RerankedCard> model_rerank_cards(
 
     const auto started = Clock::now();
     const auto candidate_count = std::min(candidates.size(), request.model_rerank_limit);
+    const auto probe_candidates = request.model_rerank_debug_trials > 0 ? candidates : std::vector<RerankedCard>{};
     std::ostringstream prompt;
     prompt << "Rank these evidence cards for the user's query. Use the original evidence only. "
-           << "Return ONLY the candidate IDs in best-to-worst order, separated by commas. "
-           << "Do not explain, add prose, or invent IDs.\n\nQUERY:\n"
-           << compact_prompt_text(query, 1000) << "\n\nCANDIDATES:\n";
+           << "Return ONLY valid JSON in this exact shape: {\"ranking\":[\"C01\",\"C02\"]}. "
+           << "Rank best to worst. Include only listed IDs. Do not explain or add prose.\n\nQUERY:\n"
+           << compact_prompt_text(query, 600) << "\n\nCANDIDATES:\n";
     for (std::size_t index = 0; index < candidate_count; ++index) {
         const auto& card = candidates[index].card;
         prompt << "[" << model_candidate_id(index) << "]\n";
-        prompt << "Claim: " << compact_prompt_text(card.tag, 300) << "\n";
-        prompt << "Highlights: " << compact_prompt_text(highlight_text(card), 700) << "\n\n";
+        prompt << "Claim: " << compact_prompt_text(card.tag, 180) << "\n";
+        prompt << "Highlights: " << compact_prompt_text(highlight_text(card), 350) << "\n\n";
     }
 
     try {
         const OllamaGenerator generator;
         const auto response = generator.generate(prompt.str());
+        logs.push_back("Qwen response: " + compact_prompt_text(response, 160));
         std::vector<std::pair<std::size_t, std::size_t>> ranked_indexes;
         std::set<std::size_t> seen;
         for (std::size_t index = 0; index < candidate_count; ++index) {
@@ -636,6 +749,16 @@ std::vector<RerankedCard> model_rerank_cards(
             throw EmbeddingError("qwen3:4b did not return any valid candidate IDs.");
         }
         std::sort(ranked_indexes.begin(), ranked_indexes.end());
+
+        run_model_rerank_shuffle_probes(
+            query,
+            probe_candidates,
+            request.model_rerank_limit,
+            request.model_rerank_debug_trials,
+            generator,
+            logs,
+            timings
+        );
 
         std::vector<RerankedCard> ranked;
         ranked.reserve(candidates.size());
@@ -663,7 +786,7 @@ std::vector<RerankedCard> model_rerank_cards(
         add_timing(timings, "qwen ID-only rerank", started);
         return ranked;
     } catch (const std::exception& error) {
-        logs.push_back(std::string("WARNING: Model rerank unavailable; kept full-context ranking. ") + error.what());
+        logs.push_back(std::string("WARNING: Model rerank unavailable; kept high-recall hybrid ranking. ") + error.what());
         add_timing(timings, "qwen ID-only rerank (fallback)", started);
         return candidates;
     }
@@ -685,7 +808,14 @@ public:
         const auto intent = parse_query_intent(request.query, request.mode);
         add_timing(timings, "query parse", parse_started);
         const auto limit = static_cast<std::size_t>(intent.requested_count.value_or(static_cast<int>(request.limit)));
-        logs.push_back("Native hybrid search started: semantic vectors + FTS + full-context rerank.");
+        const bool use_full_context_rerank = request.analysis_mode || request.full_context_rerank;
+        logs.push_back(
+            request.model_rerank
+                ? "Native hybrid search started: semantic vectors + FTS + Qwen ID-only rerank."
+                : (use_full_context_rerank
+                    ? "Native hybrid search started: semantic vectors + FTS + full-context rerank."
+                    : "Native hybrid search started: semantic vectors + FTS + lightweight rerank.")
+        );
         if (intent.opponent_claim.has_value()) {
             logs.push_back("Query framing removed; retrieved against the opponent claim itself.");
         }
@@ -740,7 +870,11 @@ public:
             add_timing(timings, "filters", filter_started);
 
             const auto rerank_started = Clock::now();
-            if (!request.analysis_mode && !request.full_context_rerank) {
+            if (request.model_rerank) {
+                selected = semantic_candidate_fallback(filtered, request.model_rerank_limit);
+                add_timing(timings, "model rerank candidate selection", rerank_started);
+                logs.push_back("Reranker candidates: high-recall hybrid results passed directly to Qwen.");
+            } else if (!use_full_context_rerank) {
                 selected = LightweightRelevanceReranker().rerank(text, filtered, limit);
                 if (selected.empty()) {
                     selected = semantic_candidate_fallback(filtered, limit);
@@ -751,7 +885,7 @@ public:
                 auto reranked = FullContextReranker().rerank(intent, filtered);
                 add_timing(timings, "full-context rerank", rerank_started);
                 const auto gate_started = Clock::now();
-                if (intent.search_mode == SearchMode::Argument) {
+                if (request.analysis_mode && intent.search_mode == SearchMode::Argument) {
                     std::vector<CandidateAssessment> assessments;
                     for (const auto& row : reranked) {
                         assessments.push_back(row.assessment);
@@ -760,8 +894,10 @@ public:
                     for (const auto index : gate.accepted_indexes) {
                         selected.push_back(reranked[index]);
                     }
-                } else {
+                } else if (request.analysis_mode) {
                     selected = general_accept(reranked);
+                } else {
+                    selected = std::move(reranked);
                 }
                 add_timing(timings, "relevance gate", gate_started);
                 logs.push_back("Reranker: full-context evidence scoring.");
