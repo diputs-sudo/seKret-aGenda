@@ -1269,6 +1269,9 @@ function renderResultCard(card, index) {
   const citation = card.title || card.citation || "Evidence card";
   const section = card.section || "Unfiled evidence";
   const highlights = highlightedEvidence(card);
+  // The card content is the exact evidence extracted by the highlight cutter.
+  // Title, author, and source metadata remain visible as provenance only.
+  const extractedEvidence = highlights.join(" ").replace(/\s+/g, " ").trim();
   return `
     <article class="result-card" data-open-result="${index}" tabindex="0">
       <div class="result-primary">
@@ -1276,13 +1279,14 @@ function renderResultCard(card, index) {
         <h3>${escapeHtml(citation)}</h3>
       </div>
       <span class="score" title="Native retrieval score; higher is better">${formatRetrievalScore(card.score)}</span>
-      <div class="result-highlights">
-        ${highlights.map((highlight) => `<p>${escapeHtml(highlight)}</p>`).join("") || `<p class="result-no-highlights">No highlights saved for this card.</p>`}
+      <div class="result-highlight-output">
+        ${extractedEvidence ? escapeHtml(extractedEvidence) : `<span class="result-no-highlights">No highlights saved for this card.</span>`}
       </div>
       <footer class="result-actions">
         <span>${escapeHtml(card.author || card.citation || "Original card")}</span>
         <div>
           <button class="text-button" data-copy-result="${index}">Copy</button>
+          ${card.url ? `<button class="text-button" data-open-url="${escapeAttr(card.url)}">Source ↗</button>` : ""}
           <button class="text-button strong" data-open-result-button="${index}">Full text &rarr;</button>
         </div>
       </footer>
