@@ -176,5 +176,9 @@ mod tests {
         assert!(payload.contains("\"mode\":\"hybrid\""));
         assert!(payload.contains("\"limit\":3"));
         assert!(payload.contains("\"includeDiagnostics\":true"));
+        assert!(payload.contains("\"fullContextRerank\":true"));
+        assert!(payload.contains("\"modelRerank\":true"));
+        assert!(payload.contains("\"modelRerankLimit\":12"));
+        assert!(payload.contains("\"vectorLimit\":50"));
     }
 }
