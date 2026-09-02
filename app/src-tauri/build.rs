@@ -147,7 +147,13 @@ fn build_hybrid_backend() {
         }
         for flag in String::from_utf8_lossy(&cflags.stdout).split_whitespace() {
             if let Some(path) = flag.strip_prefix("-I") {
-                build.include(path);
+                let include_path = std::path::PathBuf::from(path);
+                // Homebrew minizip stores unzip.h in an extra minizip directory.
+                let minizip_headers = include_path.join("minizip");
+                if minizip_headers.join("unzip.h").exists() {
+                    build.include(&minizip_headers);
+                }
+                build.include(&include_path);
             } else {
                 build.flag(flag);
             }
