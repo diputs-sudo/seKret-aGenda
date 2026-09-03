@@ -2002,9 +2002,9 @@ async function bootstrap() {
     await refreshRoundEvidence(false);
   }
   render();
-  if (isTauri()) {
-    ensureSearchRuntime(false).then(() => render()).catch(console.error);
-  }
+  // Local model installation and downloads are deliberately deferred until the
+  // user runs a semantic search or builds a library. Starting them here makes
+  // a fresh desktop install look frozen while Ollama provisions in the background.
   installNativeDragDrop().catch(console.error);
   if (state.roundView === "evidence" && state.search.query) runSearch(state.search.query);
 }
